@@ -43,6 +43,7 @@ class TransportPublicationIntegrationTest {
     @Autowired TransportDraftService drafts;
     @Autowired TransportPublicationService publisher;
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     /** Создаёт юридически связанную цепочку идентичности. */
     private UUID draft() {
@@ -174,6 +175,46 @@ class TransportPublicationIntegrationTest {
             jdbc.update("update fare_section set sequence_number=2 where id=?",segment.getId()));
         assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->
             jdbc.update("delete from fare_section where id=?",segment.getId()));
+    }
+    /** Редактор не может записать изменение после конкурирующей публикации под блокировкой версии. */
+    @Test void concurrentDraftEditCannotAlterPublishedSnapshot() throws Exception {
+        UUID id=completeDraft();
+        UUID occurrenceId=occurrences.findByPatternVersion_Id(id).get(0).getId();
+        java.util.concurrent.CountDownLatch locked=new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch editorStarted=new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var publishFuture=pool.submit(()->new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .execute(status->{
+                    versions.lockForPublication(id).orElseThrow();
+                    locked.countDown();
+                    try {
+                        if(!editorStarted.await(15,java.util.concurrent.TimeUnit.SECONDS))
+                           throw new IllegalStateException("Редактор не стартовал");
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(interrupted);
+                    }
+                    return publisher.publish(id);
+                }));
+            assertTrue(locked.await(15,java.util.concurrent.TimeUnit.SECONDS));
+            var editFuture=pool.submit(()->{
+                editorStarted.countDown();
+                try {
+                    drafts.changeDistance(occurrenceId,900L);
+                    return true;
+                } catch(RuntimeException rejected) {
+                    return false;
+                }
+            });
+            String published=publishFuture.get(20,java.util.concurrent.TimeUnit.SECONDS);
+            assertFalse(editFuture.get(20,java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals(published,
+                jdbc.queryForObject("select transport_canonical_fingerprint(?)",String.class,id));
+            assertEquals(TransportVersionStatus.PUBLISHED,versions.findById(id).orElseThrow().getStatus());
+        } finally {
+            pool.shutdownNow();
+        }
     }
     /** Клиент, передающий старую ревизию черновика, получает определённый конфликт. */
     @Test void staleRevisionRejected() {

@@ -44,6 +44,17 @@ class TransportFingerprintTest {
             List.of(a.occurrences().get(1),a.occurrences().get(0)),a.sections());
         assertArrayEquals(service.canonicalBytes(a),service.canonicalBytes(b));
     }
+    /** Порядок нескольких тарифных участков определяется sequence и UUID, а не порядком списка. */
+    @Test void sectionsIndependentOfCollectionOrder() {
+        Snapshot source=snapshot(null,null,false,false);
+        Section a=new Section(id(31),id(11),id(12),1);
+        Section b=new Section(id(32),id(11),id(12),2);
+        Snapshot forward=new Snapshot(source.legalEntityId(),source.routeId(),source.directionId(),
+            source.patternId(),source.versionId(),source.occurrences(),List.of(a,b));
+        Snapshot reverse=new Snapshot(source.legalEntityId(),source.routeId(),source.directionId(),
+            source.patternId(),source.versionId(),source.occurrences(),List.of(b,a));
+        assertArrayEquals(service.canonicalBytes(forward),service.canonicalBytes(reverse));
+    }
     /** Структурно значимые поля изменяют fingerprint. */
     @Test void structuralMutation() {
         Snapshot a=snapshot(null,null,false,true);

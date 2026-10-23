@@ -108,6 +108,46 @@ class TransportPublicationIntegrationTest {
             occurrences.saveAndFlush(occurrence);
         });
     }
+    /** PostgreSQL пересчитывает hash самостоятельно и запрещает поддельную публикацию SQL. */
+    @Test void counterfeitFingerprintRejected() {
+        UUID id=completeDraft();
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,
+          ()->jdbc.update("update route_pattern_version set status='PUBLISHED', content_fingerprint=? where id=?",
+             "sha256:"+"0".repeat(64),id));
+        assertEquals(TransportVersionStatus.DRAFT,versions.findById(id).orElseThrow().getStatus());
+    }
+    /** Java и PostgreSQL независимо вычисляют одинаковый канонический fingerprint. */
+    @Test void sqlAndJavaFingerprintEqual() {
+        UUID id=completeDraft();
+        String published=publisher.publish(id);
+        String sqlHash=jdbc.queryForObject("select transport_canonical_fingerprint(?)",String.class,id);
+        assertEquals(published,sqlHash);
+    }
+    /** Параллельные публикации сериализуются и имеют один fingerprint. */
+    @Test void parallelPublicationIdempotent() throws Exception {
+        UUID id=completeDraft();
+        java.util.concurrent.ExecutorService pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.CountDownLatch ready=new java.util.concurrent.CountDownLatch(2);
+            java.util.concurrent.CountDownLatch start=new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.Callable<String> action=()->{
+                ready.countDown();
+                if(!start.await(15,java.util.concurrent.TimeUnit.SECONDS))
+                    throw new IllegalStateException("Истёк срок ожидания публикации");
+                return publisher.publish(id);
+            };
+            var left=pool.submit(action);
+            var right=pool.submit(action);
+            assertTrue(ready.await(15,java.util.concurrent.TimeUnit.SECONDS));
+            start.countDown();
+            assertEquals(left.get(20,java.util.concurrent.TimeUnit.SECONDS),
+                         right.get(20,java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals(1L,activations.findAll().stream()
+                .filter(a->a.getPatternVersion().getId().equals(id)).count());
+        } finally {
+            pool.shutdownNow();
+        }
+    }
     /** Клиент, передающий старую ревизию черновика, получает определённый конфликт. */
     @Test void staleRevisionRejected() {
         UUID id=completeDraft();

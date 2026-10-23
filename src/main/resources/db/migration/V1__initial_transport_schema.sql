@@ -19,6 +19,7 @@ CREATE TABLE route_pattern_version (
  id uuid PRIMARY KEY, pattern_id uuid NOT NULL REFERENCES route_pattern(id),
  legal_entity_id uuid NOT NULL REFERENCES legal_entity(id),
  version_number integer NOT NULL CHECK(version_number > 0),
+ lock_version bigint NOT NULL DEFAULT 0 CHECK(lock_version >= 0),
  status varchar(20) NOT NULL DEFAULT 'DRAFT' CHECK(status = 'DRAFT'),
  content_fingerprint varchar(80) NULL CHECK(content_fingerprint IS NULL),
  effective_from timestamptz, effective_until timestamptz,
@@ -82,3 +83,32 @@ CREATE TABLE transport_version_activation (
  updated_at timestamptz
 );
 -- Черновые версии: опубликованные данные и продажа технически невозможны до следующей миграции.
+
+-- Проверка порядка границ на уровне PostgreSQL даже при прямом SQL.
+CREATE OR REPLACE FUNCTION check_fare_section_order() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE a integer; b integer;
+BEGIN
+ SELECT sequence_number INTO a FROM stop_occurrence WHERE id=NEW.start_occurrence_id AND pattern_version_id=NEW.pattern_version_id;
+ SELECT sequence_number INTO b FROM stop_occurrence WHERE id=NEW.end_occurrence_id AND pattern_version_id=NEW.pattern_version_id;
+ IF a IS NULL OR b IS NULL OR a >= b THEN
+    RAISE EXCEPTION 'Неверный порядок границ тарифного участка' USING ERRCODE='23514';
+ END IF;
+ RETURN NEW;
+END $$;
+CREATE TRIGGER fare_section_order_guard BEFORE INSERT OR UPDATE ON fare_section
+FOR EACH ROW EXECUTE FUNCTION check_fare_section_order();
+
+-- Запрещено менять порядок вхождений при существующих тарифных участках.
+CREATE OR REPLACE FUNCTION check_stop_occurrence_order() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF NEW.sequence_number <> OLD.sequence_number AND EXISTS (
+   SELECT 1 FROM fare_section WHERE start_occurrence_id=OLD.id OR end_occurrence_id=OLD.id
+ ) THEN
+    RAISE EXCEPTION 'Нельзя изменить порядок остановки, входящей в тарифный участок' USING ERRCODE='23514';
+ END IF;
+ RETURN NEW;
+END $$;
+CREATE TRIGGER stop_occurrence_order_guard BEFORE UPDATE ON stop_occurrence
+FOR EACH ROW EXECUTE FUNCTION check_stop_occurrence_order();
+
+-- Нельзя удалить вхождение, используемое тарифным участком: дополнительно обеспечивается внешними ключами.

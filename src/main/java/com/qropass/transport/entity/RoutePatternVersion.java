@@ -20,6 +20,12 @@ public class RoutePatternVersion {
     public static RoutePatternVersion create() { return new RoutePatternVersion(); }
     /** Возвращает UUID. */
     public UUID getId() { return id; }
+    /** Ревизия черновика для защиты конкурентных изменений. */
+    @Version
+    @Column(name="lock_version", nullable=false)
+    private Long lockVersion = 0L;
+    /** Читает текущую ревизию. */
+    public Long getLockVersion() { return lockVersion; }
     /** Значение pattern. */
     @ManyToOne(fetch=FetchType.LAZY)
     @JoinColumn(name="pattern_id")

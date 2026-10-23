@@ -1,0 +1,30 @@
+name: Transport T1.2 Verify
+on:
+  push:
+    branches:
+      - 'feature/QRP-TRANSPORT-001-model'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Verify Docker daemon
+        run: docker info
+      - name: Maven clean verify and PostgreSQL Testcontainers
+        run: mvn -B -ntp clean verify
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t12-surefire-reports
+          path: target/surefire-reports/
+          if-no-files-found: warn

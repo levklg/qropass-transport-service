@@ -5,6 +5,7 @@ import com.qropass.transport.model.TransportVersionStatus;
 import com.qropass.transport.repository.*;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Создание черновика версии движения без права публикации. */
@@ -16,25 +17,39 @@ public class TransportDraftService {
     private final StopOccurrenceRepository occurrences;
     private final FareSectionRepository sections;
     private final StopRepository stops;
+    private final OperatorAssignmentRepository assignments;
 
     /** Внедряет репозитории транспортного справочника. */
     public TransportDraftService(RoutePatternRepository patterns, LegalEntityRepository legalEntities,
       RoutePatternVersionRepository versions, StopOccurrenceRepository occurrences,
-      FareSectionRepository sections, StopRepository stops) {
+      FareSectionRepository sections, StopRepository stops, OperatorAssignmentRepository assignments) {
       this.patterns=patterns; this.legalEntities=legalEntities; this.versions=versions;
-      this.occurrences=occurrences; this.sections=sections; this.stops=stops;
+      this.occurrences=occurrences; this.sections=sections; this.stops=stops; this.assignments=assignments;
     }
 
     /** Создаёт черновик с новой идентичностью версии. */
     @Transactional
     public RoutePatternVersion createDraft(UUID patternId, UUID legalEntityId, int number) {
       if(number <= 0) throw new IllegalArgumentException("Номер версии должен быть положительным");
+      RoutePattern pattern=patterns.findById(patternId).orElseThrow();
+      if (!assignments.existsByRoute_IdAndLegalEntity_Id(pattern.getDirection().getRoute().getId(),legalEntityId))
+        throw new IllegalArgumentException("Юридическое лицо не связано с маршрутом через назначение");
       RoutePatternVersion version=RoutePatternVersion.create();
-      version.setPattern(patterns.findById(patternId).orElseThrow());
+      version.setPattern(pattern);
       version.setLegalEntity(legalEntities.findById(legalEntityId).orElseThrow());
       version.setVersionNumber(number);
       version.setStatus(TransportVersionStatus.DRAFT);
       return versions.save(version);
+    }
+
+    /** Меняет описание черновика с обязательным ожидаемым номером ревизии. */
+    @Transactional
+    public RoutePatternVersion updateDraftEffectiveFrom(UUID versionId, long expectedRevision, java.time.Instant instant) {
+      RoutePatternVersion version=requiredDraft(versionId);
+      if (!version.getLockVersion().equals(expectedRevision))
+        throw new ObjectOptimisticLockingFailureException(RoutePatternVersion.class, versionId);
+      version.setEffectiveFrom(instant);
+      return versions.saveAndFlush(version);
     }
 
     /** Добавляет остановку в черновую схему; повторный stopId допустим. */

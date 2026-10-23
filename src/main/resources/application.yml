@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: qropass-transport-service
+  datasource:
+    url: ${TRANSPORT_DB_URL:jdbc:postgresql://localhost:5432/qropass_transport}
+    username: ${TRANSPORT_DB_USER:transport}
+    password: ${TRANSPORT_DB_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+server:
+  port: ${TRANSPORT_PORT:8093}

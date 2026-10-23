@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class TransportPostgresIntegrationTest {
     /** Публикация запрещена CHECK-ограничением, а не отсутствующим FK. */
     @Test void migrationAndDraftOnlyGuards() throws Exception {
-        try (PostgreSQLContainer<?> postgres=new PostgreSQLContainer<>("postgres:16-alpine")) {
+        try (PostgreSQLContainer<?> postgres=new PostgreSQLContainer<>("postgres:15")) {
             postgres.start();
             Flyway flyway=Flyway.configure()
                     .dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword())

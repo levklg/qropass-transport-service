@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class TransportDatabaseIntegrationTest {
     /** Отдельный контейнер PostgreSQL для всех интеграционных проверок. */
     @Container
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15");
 
     /** Подключение Spring и Flyway к тестовой БД. */
     @DynamicPropertySource

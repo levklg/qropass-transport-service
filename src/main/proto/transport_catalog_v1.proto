@@ -1,0 +1,53 @@
+syntax = "proto3";
+package qropass.transport.catalog.v1;
+option java_package = "com.qropass.transport.grpc.v1";
+option java_multiple_files = true;
+option java_outer_classname = "TransportCatalogV1Proto";
+
+// Transport read-only catalog contract v1. UUID encoded as canonical lowercase strings.
+// Administrative endpoint: trusted service identity and authorization are mandatory.
+service TransportCatalogService {
+  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
+  rpc ListRoutePatterns(ListRoutePatternsRequest) returns (ListRoutePatternsResponse);
+  rpc ListRoutePatternVersions(ListRoutePatternVersionsRequest) returns (ListRoutePatternVersionsResponse);
+  rpc GetRoutePatternVersion(GetRoutePatternVersionRequest) returns (GetRoutePatternVersionResponse);
+  rpc ListPatternStops(ListPatternStopsRequest) returns (ListPatternStopsResponse);
+}
+message PageRequest { int32 page_size = 1; int32 page_number = 2; }
+message RouteDirection { string direction_id = 1; string route_id = 2; string code = 3; string display_name = 4; }
+message Route { string route_id = 1; string number = 2; string name = 3; repeated RouteDirection directions = 4; }
+message ListRoutesRequest { string legal_entity_id = 1; PageRequest page = 2; }
+message ListRoutesResponse { repeated Route routes = 1; int64 total_count = 2; }
+message RoutePattern { string pattern_id = 1; string route_id = 2; string direction_id = 3; string code = 4; string display_name = 5; }
+message ListRoutePatternsRequest { string route_id = 1; string direction_id = 2; string legal_entity_id = 3; PageRequest page = 4; }
+message ListRoutePatternsResponse { repeated RoutePattern patterns = 1; int64 total_count = 2; }
+message PatternVersion {
+  string version_id = 1;
+  string pattern_id = 2;
+  string route_id = 3;
+  string direction_id = 4;
+  string legal_entity_id = 5;
+  int32 version_number = 6;
+  string publication_status = 7; // DRAFT or PUBLISHED
+  string content_fingerprint = 8; // empty for DRAFT
+  string sale_status = 9; // NOT_FOR_SALE independently of publication
+}
+message ListRoutePatternVersionsRequest {
+  string pattern_id = 1; string legal_entity_id = 2; string publication_status = 3; PageRequest page = 4;
+}
+message ListRoutePatternVersionsResponse { repeated PatternVersion versions = 1; int64 total_count = 2; }
+message StopOccurrence {
+  string occurrence_id = 1; string version_id = 2; string stop_id = 3; int32 sequence_number = 4;
+  string stop_name = 5; bool pickup_allowed = 6; bool dropoff_allowed = 7;
+  optional int64 confirmed_distance_meters = 8;
+}
+message FareSection {
+  string section_id = 1; string version_id = 2; string start_occurrence_id = 3;
+  string end_occurrence_id = 4; int32 sequence_number = 5;
+}
+message GetRoutePatternVersionRequest { string version_id = 1; }
+message GetRoutePatternVersionResponse {
+  PatternVersion version = 1; repeated StopOccurrence stops = 2; repeated FareSection fare_sections = 3;
+}
+message ListPatternStopsRequest { string version_id = 1; PageRequest page = 2; }
+message ListPatternStopsResponse { repeated StopOccurrence stops = 1; int64 total_count = 2; }

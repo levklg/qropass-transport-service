@@ -39,7 +39,7 @@ public class TransportDraftService {
       version.setLegalEntity(legalEntities.findById(legalEntityId).orElseThrow());
       version.setVersionNumber(number);
       version.setStatus(TransportVersionStatus.DRAFT);
-      return versions.save(version);
+      return versions.saveAndFlush(version);
     }
 
     /** Меняет описание черновика с обязательным ожидаемым номером ревизии. */
@@ -65,7 +65,7 @@ public class TransportDraftService {
       occurrence.setPickupAllowed(pickup);
       occurrence.setDropoffAllowed(dropoff);
       occurrence.setDistanceMeters(distance);
-      return occurrences.save(occurrence);
+      return occurrences.saveAndFlush(occurrence);
     }
 
     /** Создаёт участок только между вхождениями той же черновой версии. */
@@ -84,7 +84,7 @@ public class TransportDraftService {
       section.setStartOccurrence(start);
       section.setEndOccurrence(end);
       section.setSequenceNumber(sequence);
-      return sections.save(section);
+      return sections.saveAndFlush(section);
     }
 
     /** Изменяет расстояние существующего вхождения черновика. */

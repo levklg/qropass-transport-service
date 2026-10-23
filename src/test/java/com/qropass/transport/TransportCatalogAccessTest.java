@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** Доступ запрещён до подключения реального доверенного делегирования. */
 class TransportCatalogAccessTest {
-    private final TransportCatalogGrpcService catalog=new TransportCatalogGrpcService(new CatalogAccessPolicy());
+    private final TransportCatalogGrpcService catalog=new TransportCatalogGrpcService(new CatalogAccessPolicy(),org.mockito.Mockito.mock(TransportCatalogQueryService.class));
     private <T> Status.Code code(java.util.function.Consumer<StreamObserver<T>> call) {
         AtomicReference<Throwable> error=new AtomicReference<>();
         call.accept(new StreamObserver<T>() {

@@ -100,6 +100,40 @@ BEGIN
          ) t WHERE sequence_number<>position) THEN
       RAISE EXCEPTION 'Недопустимая последовательность остановок' USING ERRCODE='23514';
     END IF;
+    IF NOT (SELECT pickup_allowed FROM stop_occurrence
+            WHERE pattern_version_id=NEW.id ORDER BY sequence_number ASC LIMIT 1)
+       OR NOT (SELECT dropoff_allowed FROM stop_occurrence
+            WHERE pattern_version_id=NEW.id ORDER BY sequence_number DESC LIMIT 1) THEN
+      RAISE EXCEPTION 'Конечные остановки имеют неверные права посадки и высадки' USING ERRCODE='23514';
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM (
+        SELECT distance_meters,
+          max(distance_meters) OVER (
+            ORDER BY sequence_number ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+          ) AS previously_known
+        FROM stop_occurrence WHERE pattern_version_id=NEW.id
+      ) distances WHERE distance_meters IS NOT NULL
+         AND previously_known IS NOT NULL AND distance_meters < previously_known
+    ) THEN
+      RAISE EXCEPTION 'Известные накопленные расстояния убывают' USING ERRCODE='23514';
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM (
+        SELECT sequence_number,row_number() OVER(ORDER BY sequence_number) AS position
+        FROM fare_section WHERE pattern_version_id=NEW.id
+      ) segments WHERE sequence_number<>position
+    ) THEN
+      RAISE EXCEPTION 'Нарушена последовательность тарифных участков' USING ERRCODE='23514';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM operator_assignment oa
+      JOIN route_pattern p ON p.id=NEW.pattern_id
+      JOIN route_direction d ON d.id=p.direction_id
+      WHERE oa.route_id=d.route_id AND oa.legal_entity_id=NEW.legal_entity_id
+    ) THEN
+      RAISE EXCEPTION 'Отсутствует юридическое назначение на маршрут' USING ERRCODE='23514';
+    END IF;
   END IF;
   IF NEW.pattern_id IS DISTINCT FROM OLD.pattern_id
      OR NEW.legal_entity_id IS DISTINCT FROM OLD.legal_entity_id THEN

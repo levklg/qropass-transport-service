@@ -148,6 +148,33 @@ class TransportPublicationIntegrationTest {
             pool.shutdownNow();
         }
     }
+    /** Прямой SQL не может опубликовать убывающие расстояния даже с верным SHA-256. */
+    @Test void malformedSqlPublicationRejectedEvenWithMatchingHash() {
+        UUID id=completeDraft();
+        UUID first=occurrences.findByPatternVersion_Id(id).stream()
+            .filter(o->o.getSequenceNumber()==1).findFirst().orElseThrow().getId();
+        UUID second=occurrences.findByPatternVersion_Id(id).stream()
+            .filter(o->o.getSequenceNumber()==2).findFirst().orElseThrow().getId();
+        jdbc.update("update stop_occurrence set distance_meters=500 where id=?",first);
+        jdbc.update("update stop_occurrence set distance_meters=0 where id=?",second);
+        String validHash=jdbc.queryForObject("select transport_canonical_fingerprint(?)",String.class,id);
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->
+            jdbc.update("update route_pattern_version set status='PUBLISHED', content_fingerprint=? where id=?",
+                validHash,id));
+        assertEquals(TransportVersionStatus.DRAFT,versions.findById(id).orElseThrow().getStatus());
+    }
+    /** Опубликованный тарифный участок нельзя менять и удалять прямым SQL. */
+    @Test void publishedFareSectionSqlProtected() {
+        UUID id=completeDraft();
+        var ordered=occurrences.findByPatternVersion_Id(id).stream()
+            .sorted(java.util.Comparator.comparingInt(StopOccurrence::getSequenceNumber)).toList();
+        FareSection segment=drafts.addSection(id,ordered.get(0).getId(),ordered.get(1).getId(),1);
+        publisher.publish(id);
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->
+            jdbc.update("update fare_section set sequence_number=2 where id=?",segment.getId()));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->
+            jdbc.update("delete from fare_section where id=?",segment.getId()));
+    }
     /** Клиент, передающий старую ревизию черновика, получает определённый конфликт. */
     @Test void staleRevisionRejected() {
         UUID id=completeDraft();

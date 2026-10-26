@@ -111,6 +111,55 @@ class CatalogDelegationSecurityTest {
         assertThrows(StatusRuntimeException.class,()->authorizer.authorize(t,CatalogOperation.LIST_ROUTES,gateway,
             UUID.randomUUID(),true,false));
     }
+    /** Отпечаток берётся именно из аутентифицированного SSLSession, не из Metadata. */
+    @Test void gatewayFingerprintComesFromAuthenticatedTlsPeer() throws Exception {
+        byte[] der=new byte[]{48,3,2,1,5};
+        java.security.cert.X509Certificate certificate=
+            org.mockito.Mockito.mock(java.security.cert.X509Certificate.class);
+        org.mockito.Mockito.when(certificate.getEncoded()).thenReturn(der);
+        javax.net.ssl.SSLSession session=org.mockito.Mockito.mock(javax.net.ssl.SSLSession.class);
+        org.mockito.Mockito.when(session.getPeerCertificates()).thenReturn(
+            new java.security.cert.Certificate[]{certificate});
+        org.mockito.Mockito.when(session.getPeerPrincipal()).thenReturn(
+            new javax.security.auth.x500.X500Principal("CN=qropass-panel-gateway"));
+        @SuppressWarnings("unchecked")
+        io.grpc.ServerCall<String,String> call=org.mockito.Mockito.mock(io.grpc.ServerCall.class);
+        org.mockito.Mockito.when(call.getAttributes()).thenReturn(io.grpc.Attributes.newBuilder()
+            .set(io.grpc.Grpc.TRANSPORT_ATTR_SSL_SESSION,session).build());
+        var verified=GatewayTlsPeer.fromCall(call,"CN=qropass-panel-gateway");
+        assertArrayEquals(MessageDigest.getInstance("SHA-256").digest(der),verified.certificateSha256());
+        byte[] copy=verified.certificateSha256();
+        copy[0]^=1;
+        assertArrayEquals(MessageDigest.getInstance("SHA-256").digest(der),verified.certificateSha256());
+        assertEquals(Status.Code.UNAUTHENTICATED,Status.fromThrowable(
+            assertThrows(StatusRuntimeException.class,
+                ()->GatewayTlsPeer.fromCall(call,"CN=another-service"))).getCode());
+    }
+
+    /** Ответ Core с иной организацией или отсутствующим ROUTES_VIEW не даёт права чтения. */
+    @Test void coreScopeCannotBroadenSignedOrganizationsOrRights()throws Exception {
+        KeyPair pair=keys();
+        String t=token(pair,"LIST_ROUTES","qropass-transport-catalog",
+            B64.encodeToString(gatewayFingerprint),clock.instant().getEpochSecond()+30);
+        var foreign=UUID.randomUUID();
+        CoreDelegationValidation incorrectScope=new CoreDelegationValidation(req->
+            AuthorizeResponse.newBuilder().setDecision(AuthorizationDecision.ALLOW)
+                .setOperation(CatalogOperation.LIST_ROUTES)
+                .addAuthorizedLegalEntityUuids(foreign.toString())
+                .setAllowPublished(true).build());
+        var authorizer=new CatalogDelegationAuthorizer(verifier(pair),incorrectScope);
+        assertThrows(StatusRuntimeException.class,()->authorizer.authorizeSignedScope(
+            t,CatalogOperation.LIST_ROUTES,gateway,legal));
+
+        CoreDelegationValidation missingPermission=new CoreDelegationValidation(req->
+            AuthorizeResponse.newBuilder().setDecision(AuthorizationDecision.ALLOW)
+                .setOperation(CatalogOperation.LIST_ROUTES)
+                .addAuthorizedLegalEntityUuids(legal.toString())
+                .setAllowPublished(false).build());
+        var denied=new CatalogDelegationAuthorizer(verifier(pair),missingPermission);
+        assertThrows(StatusRuntimeException.class,()->denied.authorizeSignedScope(
+            t,CatalogOperation.LIST_ROUTES,gateway,legal));
+    }
     @Test void mTlsInterceptorWithoutSessionRejects() {
         io.grpc.ServerCall<String,String> call=org.mockito.Mockito.mock(io.grpc.ServerCall.class);
         org.mockito.Mockito.when(call.getAttributes()).thenReturn(io.grpc.Attributes.EMPTY);

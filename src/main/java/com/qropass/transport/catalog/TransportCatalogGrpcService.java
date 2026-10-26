@@ -68,6 +68,7 @@ public class TransportCatalogGrpcService extends TransportCatalogServiceGrpc.Tra
     @Override public void listPatternStops(ListPatternStopsRequest request,
                                              StreamObserver<ListPatternStopsResponse> observer) {
         execute(observer,()->{
+            if(queries==null) access.requireAuthorized(null);
             UUID id=uuid(request.getVersionId(),true);
             UUID legal=queries.requireVersionIdentity(id).legalEntityId();
             Scope scope=access.requireAuthorized(CatalogOperation.LIST_PATTERN_STOPS,legal);

@@ -1,5 +1,7 @@
 package com.qropass.transport.catalog;
 
+import com.qropass.grpc.panel.security.v1.CatalogOperation;
+import com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope;
 import com.qropass.transport.grpc.v1.*;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -7,58 +9,93 @@ import io.grpc.stub.StreamObserver;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
- * Только read-only RPC v1. До подключения QRP-SEC-001 защищённый барьер
- * всегда отклоняет вызовы. Сетевой gRPC listener в T1.4 не создаётся.
+ * Транспортные RPC без сетевого listener. Core Validate Delegation обязателен;
+ * результат Core применяется в SQL до пагинации и totalCount.
  */
 @Service
 public class TransportCatalogGrpcService extends TransportCatalogServiceGrpc.TransportCatalogServiceImplBase {
     private final CatalogAccessPolicy access;
-    private final TransportCatalogQueryService queries;
+    private final TransportScopedCatalogQueryService queries;
 
-    /** Внедряет запретительную политику и read-only адаптер. */
-    public TransportCatalogGrpcService(CatalogAccessPolicy access,TransportCatalogQueryService queries) {
-        this.access=access;this.queries=queries;
+    /** Production bean: без доверенного mTLS/Core policy всегда возвращает отказ. */
+    @Autowired
+    public TransportCatalogGrpcService(CatalogAccessPolicy access,TransportScopedCatalogQueryService queries) {
+        this.access=java.util.Objects.requireNonNull(access);
+        this.queries=java.util.Objects.requireNonNull(queries);
     }
-    /** Реестр маршрутов, включая направления. */
+    /** Совместимость существующих тестов закрытого каталога T1.4. */
+    public TransportCatalogGrpcService(CatalogAccessPolicy access,TransportCatalogQueryService unused) {
+        this.access=java.util.Objects.requireNonNull(access);
+        this.queries=null;
+    }
     @Override public void listRoutes(ListRoutesRequest request,StreamObserver<ListRoutesResponse> observer) {
-        execute(request.getLegalEntityId(),observer,()->queries.listRoutes(request));
+        execute(observer,()->{
+            UUID legal=uuid(request.getLegalEntityId(),false);
+            Scope scope=access.requireAuthorized(CatalogOperation.LIST_ROUTES,legal);
+            return queries.listRoutes(request,scope);
+        });
     }
-    /** Варианты движения с UUID направления. */
-    @Override public void listRoutePatterns(ListRoutePatternsRequest request,StreamObserver<ListRoutePatternsResponse> observer) {
-        execute(request.getLegalEntityId(),observer,()->queries.listPatterns(request));
+    @Override public void listRoutePatterns(ListRoutePatternsRequest request,
+                                              StreamObserver<ListRoutePatternsResponse> observer) {
+        execute(observer,()->{
+            UUID legal=uuid(request.getLegalEntityId(),false);
+            Scope scope=access.requireAuthorized(CatalogOperation.LIST_ROUTE_PATTERNS,legal);
+            return queries.listPatterns(request,scope);
+        });
     }
-    /** Версии с отдельными статусами публикации и продаж. */
-    @Override public void listRoutePatternVersions(ListRoutePatternVersionsRequest request,StreamObserver<ListRoutePatternVersionsResponse> observer) {
-        execute(request.getLegalEntityId(),observer,()->queries.listVersions(request));
+    @Override public void listRoutePatternVersions(ListRoutePatternVersionsRequest request,
+                                                     StreamObserver<ListRoutePatternVersionsResponse> observer) {
+        execute(observer,()->{
+            UUID legal=uuid(request.getLegalEntityId(),false);
+            Scope scope=access.requireAuthorized(CatalogOperation.LIST_ROUTE_PATTERN_VERSIONS,legal);
+            return queries.listVersions(request,scope);
+        });
     }
-    /** Подробный структурный снимок версии. */
-    @Override public void getRoutePatternVersion(GetRoutePatternVersionRequest request,StreamObserver<GetRoutePatternVersionResponse> observer) {
-        execute("",observer,()->queries.getVersion(request));
+    @Override public void getRoutePatternVersion(GetRoutePatternVersionRequest request,
+                                                   StreamObserver<GetRoutePatternVersionResponse> observer) {
+        execute(observer,()->{
+            UUID id=uuid(request.getVersionId(),true);
+            UUID legal=queries.requireVersionIdentity(id).legalEntityId();
+            Scope scope=access.requireAuthorized(CatalogOperation.GET_ROUTE_PATTERN_VERSION,legal);
+            return queries.getVersion(request,scope);
+        });
     }
-    /** Остановки с оригинальными идентификаторами вхождений. */
-    @Override public void listPatternStops(ListPatternStopsRequest request,StreamObserver<ListPatternStopsResponse> observer) {
-        execute("",observer,()->queries.listStops(request));
+    @Override public void listPatternStops(ListPatternStopsRequest request,
+                                             StreamObserver<ListPatternStopsResponse> observer) {
+        execute(observer,()->{
+            UUID id=uuid(request.getVersionId(),true);
+            UUID legal=queries.requireVersionIdentity(id).legalEntityId();
+            Scope scope=access.requireAuthorized(CatalogOperation.LIST_PATTERN_STOPS,legal);
+            return queries.listStops(request,scope);
+        });
     }
-    private <T> void execute(String organization,StreamObserver<T> observer,Supplier<T> query) {
+    private static UUID uuid(String text,boolean mandatory) {
+        if(text==null || text.isBlank()) {
+            if(mandatory) throw new IllegalArgumentException("Требуется идентификатор версии");
+            return null;
+        }
+        try { return UUID.fromString(text); }
+        catch(IllegalArgumentException ex) { throw new IllegalArgumentException("Некорректный UUID",ex); }
+    }
+    private static <T> void execute(StreamObserver<T> observer,Supplier<T> action) {
         try {
-            UUID legalId=null;
-            if(!organization.isBlank()) legalId=UUID.fromString(organization);
-            access.requireAuthorized(legalId);
-            // Даже после успешной авторизации будущая политика обязана проверить
-            // права на конкретный маршрут/версию и область организации.
-            observer.onNext(query.get());
+            T result=action.get();
+            observer.onNext(result);
             observer.onCompleted();
         } catch(StatusRuntimeException ex) {
             observer.onError(ex);
         } catch(IllegalArgumentException | ArithmeticException ex) {
-            observer.onError(Status.INVALID_ARGUMENT.withDescription(ex.getMessage()).asRuntimeException());
+            observer.onError(Status.INVALID_ARGUMENT.withDescription("Недопустимые параметры").asRuntimeException());
         } catch(NoSuchElementException ex) {
-            observer.onError(Status.NOT_FOUND.withDescription(ex.getMessage()).asRuntimeException());
+            observer.onError(Status.NOT_FOUND.withDescription("Объект не найден").asRuntimeException());
+        } catch(SecurityException ex) {
+            observer.onError(Status.PERMISSION_DENIED.withDescription("Нет полномочий для просмотра").asRuntimeException());
         } catch(RuntimeException ex) {
-            observer.onError(Status.INTERNAL.withDescription("Ошибка чтения транспортного каталога").asRuntimeException());
+            observer.onError(Status.INTERNAL.withDescription("Ошибка чтения каталога").asRuntimeException());
         }
     }
 }

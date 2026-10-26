@@ -27,6 +27,7 @@ class TransportCatalogIntegrationTest {
         p.add("spring.datasource.password",postgres::getPassword);
     }
     @Autowired TransportCatalogQueryService catalog;
+    @Autowired com.qropass.transport.catalog.TransportScopedCatalogQueryService scoped;
     @Autowired TransportPublicationService publication;
     @Autowired JdbcTemplate jdbc;
 
@@ -137,6 +138,78 @@ class TransportCatalogIntegrationTest {
         assertEquals(jdbc.queryForObject("select content_fingerprint from route_pattern_version where id=?",
             String.class,f.version()),result.getVersion().getContentFingerprint());
     }
+
+    /** Все пять запросов ограничиваются подтверждённой областью до COUNT и LIMIT. */
+    @Test void authorizedScopeFiltersCountsPagesAndDraftOnlyPatterns() {
+        Fixture draft=seed(false),published=seed(true);
+        var pubScope=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(published.legal()),true,false);
+        var draftScope=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(draft.legal()),false,true);
+        var noDraft=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(draft.legal()),true,false);
+
+        assertEquals(0,scoped.listRoutes(ListRoutesRequest.getDefaultInstance(),noDraft).getTotalCount());
+        assertEquals(0,scoped.listPatterns(ListRoutePatternsRequest.getDefaultInstance(),noDraft).getTotalCount());
+        var routes=scoped.listRoutes(ListRoutesRequest.newBuilder()
+            .setPage(PageRequest.newBuilder().setPageSize(1).build()).build(),pubScope);
+        assertEquals(1,routes.getTotalCount());
+        assertEquals(published.route().toString(),routes.getRoutes(0).getRouteId());
+        assertEquals(0,scoped.listRoutes(ListRoutesRequest.newBuilder()
+            .setPage(PageRequest.newBuilder().setPageSize(1).setPageNumber(1)).build(),
+            pubScope).getRoutesCount());
+
+        assertEquals(1,scoped.listPatterns(ListRoutePatternsRequest.getDefaultInstance(),draftScope)
+            .getTotalCount());
+        assertEquals(0,scoped.listPatterns(ListRoutePatternsRequest.newBuilder()
+            .setLegalEntityId(published.legal().toString()).build(),draftScope).getTotalCount());
+        assertEquals(1,scoped.listVersions(ListRoutePatternVersionsRequest.getDefaultInstance(),pubScope)
+            .getTotalCount());
+        assertEquals(1,scoped.listVersions(ListRoutePatternVersionsRequest.getDefaultInstance(),draftScope)
+            .getTotalCount());
+        assertEquals(0,scoped.listVersions(ListRoutePatternVersionsRequest.newBuilder()
+            .setPublicationStatus("DRAFT").build(),pubScope).getTotalCount());
+
+        assertEquals(0,scoped.listStops(ListPatternStopsRequest.newBuilder()
+            .setVersionId(draft.version().toString()).build(),pubScope).getTotalCount());
+        assertThrows(java.util.NoSuchElementException.class,
+            ()->scoped.getVersion(GetRoutePatternVersionRequest.newBuilder()
+                .setVersionId(draft.version().toString()).build(),pubScope));
+        var snapshot=scoped.getVersion(GetRoutePatternVersionRequest.newBuilder()
+            .setVersionId(published.version().toString()).build(),pubScope);
+        assertEquals(published.legal().toString(),snapshot.getVersion().getLegalEntityId());
+        assertEquals(2,snapshot.getStopsCount());
+        assertEquals(1,snapshot.getFareSectionsCount());
+        assertEquals("NOT_FOR_SALE",snapshot.getVersion().getSaleStatus());
+        assertEquals(publication.publish(published.version()),snapshot.getVersion().getContentFingerprint());
+    }
+
+    /** Параллельные запросы двух организаций не смешивают подтверждённые области. */
+    @Test void simultaneousOrganizationScopesRemainIsolated()throws Exception {
+        Fixture left=seed(true),right=seed(true);
+        var scopeA=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(left.legal()),true,false);
+        var scopeB=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(right.legal()),true,false);
+        java.util.concurrent.ExecutorService pool=java.util.concurrent.Executors.newFixedThreadPool(6);
+        try {
+            java.util.List<java.util.concurrent.Callable<Boolean>> calls=new java.util.ArrayList<>();
+            for(int i=0;i<24;i++) {
+                final boolean a=i%2==0;
+                calls.add(()->{
+                    var scope=a?scopeA:scopeB;
+                    UUID expected=a?left.route():right.route();
+                    var response=scoped.listRoutes(ListRoutesRequest.getDefaultInstance(),scope);
+                    return response.getTotalCount()==1 &&
+                        response.getRoutesCount()==1 &&
+                        expected.toString().equals(response.getRoutes(0).getRouteId());
+                });
+            }
+            for(var f:pool.invokeAll(calls))
+                assertTrue(f.get(15,java.util.concurrent.TimeUnit.SECONDS));
+        } finally { pool.shutdownNow(); }
+    }
+
     /** Отсутствующая версия не замещается фиктивным ответом. */
     @Test void nonexistentVersionRejected() {
         assertThrows(java.util.NoSuchElementException.class,()->catalog.getVersion(

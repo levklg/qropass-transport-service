@@ -21,6 +21,16 @@ public final class CatalogDelegationAuthorizer {
         this.verifier=java.util.Objects.requireNonNull(verifier);
         this.core=java.util.Objects.requireNonNull(core);
     }
+    /** Запрашивает у Core ровно разрешённые подписанным токеном классы данных. */
+    public Scope authorizeSignedScope(String token,CatalogOperation operation,
+                                      GatewayTlsPeer.Verified gateway,UUID requiredOrganization) {
+        Map<String,Object> claims=verifier.verify(token,operation.name(),gateway);
+        if(!(claims.get("allowPublished") instanceof Boolean published) ||
+           !(claims.get("allowDrafts") instanceof Boolean drafts) ||
+           (!published && !drafts))
+            throw Status.PERMISSION_DENIED.withDescription("Не заданы права просмотра").asRuntimeException();
+        return authorize(token,operation,gateway,requiredOrganization,published,drafts);
+    }
     /** Возвращает только пересечение подтверждённых Core полномочий и токена. */
     public Scope authorize(String token,CatalogOperation operation,GatewayTlsPeer.Verified gateway,
                            UUID requiredOrganization,boolean requestPublished,boolean requestDrafts) {

@@ -1,0 +1,110 @@
+syntax = "proto3";
+package qropass.panel.security.v1;
+option java_multiple_files = true;
+option java_package = "com.qropass.grpc.panel.security.v1";
+option java_outer_classname = "PanelSecurityProto";
+
+service PanelAdministrativeSessionService {
+  // Отдельный вход: прежний PanelAuthService.Authenticate не изменяется.
+  rpc BootstrapAuthenticate(BootstrapAuthenticateRequest) returns (BootstrapAuthenticateResponse);
+  rpc RegisterPanelSession(RegisterPanelSessionRequest) returns (RegisterPanelSessionResponse);
+  rpc RevokePanelSession(RevokePanelSessionRequest) returns (RevokePanelSessionResponse);
+}
+
+service PanelAuthorizationService {
+  // Первый подэтап: контракт без выдачи работающих транспортных делегирований.
+  rpc Authorize(AuthorizeRequest) returns (AuthorizeResponse);
+}
+
+enum AuthorizationAction {
+  AUTHORIZATION_ACTION_UNSPECIFIED = 0;
+  ISSUE_DELEGATION = 1;
+  VALIDATE_DELEGATION = 2;
+}
+enum PanelAccessMode {
+  PANEL_ACCESS_MODE_UNSPECIFIED = 0;
+  SINGLE_ORGANIZATION = 1;
+  ALL_ACCESSIBLE = 2;
+  PLATFORM_ADMIN = 3;
+}
+enum CatalogOperation {
+  CATALOG_OPERATION_UNSPECIFIED = 0;
+  LIST_ROUTES = 1;
+  LIST_ROUTE_PATTERNS = 2;
+  LIST_ROUTE_PATTERN_VERSIONS = 3;
+  GET_ROUTE_PATTERN_VERSION = 4;
+  LIST_PATTERN_STOPS = 5;
+}
+enum AuthorizationDecision {
+  AUTHORIZATION_DECISION_UNSPECIFIED = 0;
+  ALLOW = 1;
+  DENY = 2;
+}
+
+message BootstrapAuthenticateRequest {
+  string request_id = 1;
+  string login = 2;
+  string password = 3;
+}
+message BootstrapAuthenticateResponse {
+  int64 panel_user_id = 1;
+  bytes bootstrap_proof = 2;
+  string expires_at = 3;
+}
+message RegisterPanelSessionRequest {
+  string request_id = 1;
+  int64 panel_user_id = 2;
+  bytes bootstrap_proof = 3;
+}
+message RegisterPanelSessionResponse {
+  string session_id = 1;
+  bytes session_proof = 2;
+  int64 session_revision = 3;
+  string expires_at = 4;
+}
+message RevokePanelSessionRequest {
+  string request_id = 1;
+  string session_id = 2;
+  bytes session_proof = 3;
+}
+message RevokePanelSessionResponse {
+  bool revoked = 1;
+  int64 session_revision = 2;
+}
+
+message AuthorizeRequest {
+  string request_id = 1;
+  AuthorizationAction action = 2;
+  int64 panel_user_id = 3;
+  string session_id = 4;
+  bytes session_proof = 5;
+  CatalogOperation operation = 6;
+  PanelAccessMode access_mode = 7;
+  repeated string requested_legal_entity_uuids = 8;
+  bool include_published = 9;
+  bool include_drafts = 10;
+  string delegation_token = 11;
+  CatalogOperation expected_operation = 12;
+  repeated string target_legal_entity_uuids = 13;
+  bool target_includes_published = 14;
+  bool target_includes_drafts = 15;
+  // SHA-256 DER-сертификата Gateway, проверенного Transport по mTLS; только VALIDATE_DELEGATION.
+  bytes verified_gateway_certificate_sha256 = 16;
+}
+message AuthorizeResponse {
+  AuthorizationDecision decision = 1;
+  string denial_reason = 2;
+  int64 panel_user_id = 3;
+  string session_id = 4;
+  CatalogOperation operation = 5;
+  PanelAccessMode access_mode = 6;
+  repeated string authorized_legal_entity_uuids = 7;
+  bool allow_published = 8;
+  bool allow_drafts = 9;
+  int64 authorization_revision = 10;
+  int64 session_revision = 11;
+  string delegation_token = 12;
+  string token_id = 13;
+  string issued_at = 14;
+  string expires_at = 15;
+}

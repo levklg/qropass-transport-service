@@ -107,7 +107,7 @@ public class TransportScopedCatalogQueryService {
               " AND EXISTS(SELECT 1 FROM route_pattern p JOIN route_pattern_version v"+
               " ON v.pattern_id=p.id WHERE p.direction_id=d.id AND "+allowed+")"+
               " ORDER BY d.direction_code NULLS LAST,d.id",
-              dr->builder.addDirections(RouteDirection.newBuilder()
+              (org.springframework.jdbc.core.RowCallbackHandler) dr->builder.addDirections(RouteDirection.newBuilder()
                  .setDirectionId(((UUID)dr.getObject(1)).toString())
                  .setRouteId(routeId.toString()).setCode(value(dr.getString(2)))
                  .setDisplayName(value(dr.getString(3))).build()),directionArgs.toArray());

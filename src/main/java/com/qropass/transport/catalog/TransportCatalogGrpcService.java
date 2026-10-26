@@ -58,6 +58,7 @@ public class TransportCatalogGrpcService extends TransportCatalogServiceGrpc.Tra
     @Override public void getRoutePatternVersion(GetRoutePatternVersionRequest request,
                                                    StreamObserver<GetRoutePatternVersionResponse> observer) {
         execute(observer,()->{
+            if(queries==null) access.requireAuthorized(null);
             UUID id=uuid(request.getVersionId(),true);
             UUID legal=queries.requireVersionIdentity(id).legalEntityId();
             Scope scope=access.requireAuthorized(CatalogOperation.GET_ROUTE_PATTERN_VERSION,legal);

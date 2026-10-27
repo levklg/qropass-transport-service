@@ -69,6 +69,9 @@ class CatalogDelegationSecurityTest {
         claims.put("sessionRevision",1);
         claims.put("policyRevision",1);
         claims.put("cnf",Map.of("x5t#S256",cnf));
+        return signClaims(pair,header,claims);
+    }
+    private String signClaims(KeyPair pair,Map<String,Object> header,Map<String,Object> claims)throws Exception {
         ObjectMapper json=new ObjectMapper();
         String signing=B64.encodeToString(json.writeValueAsBytes(header))+"."+
                        B64.encodeToString(json.writeValueAsBytes(claims));
@@ -184,6 +187,65 @@ class CatalogDelegationSecurityTest {
         assertThrows(StatusRuntimeException.class,()->denied.authorizeSignedScope(
             t,CatalogOperation.LIST_ROUTES,gateway,legal));
     }
+    /** TR-SEC-03: типы, неизвестные поля, область, UUID, ревизии, cnf, TTL. */
+    @Test void strictlyRejectMalformedButValidlySignedCoreClaims() throws Exception {
+        KeyPair pair=keys();
+        long now=clock.instant().getEpochSecond();
+        Map<String,Object> head=Map.of("alg","EdDSA","typ","JWT","kid","core-key-1");
+        String valid=token(pair,"LIST_ROUTES","qropass-transport-catalog",
+            B64.encodeToString(gatewayFingerprint),now+30);
+        ObjectMapper json=new ObjectMapper();
+        String[] parts=valid.split("\\.");
+        @SuppressWarnings("unchecked")
+        Map<String,Object> original=json.readValue(Base64.getUrlDecoder().decode(parts[1]),Map.class);
+        java.util.List<java.util.function.Consumer<Map<String,Object>>> invalid=List.of(
+            c->c.put("allowPublished","true"),
+            c->c.put("allowDrafts",1),
+            c->c.put("allowPublished",false),
+            c->c.put("authorizationRevision",1.5),
+            c->c.put("sessionRevision",-1),
+            c->c.put("policyRevision","1"),
+            c->c.put("iat",1.25),
+            c->c.put("exp",new java.math.BigInteger("18446744073709551616")),
+            c->c.put("accessMode","UNKNOWN"),
+            c->c.put("sub","0"),
+            c->c.put("sid","not-uuid"),
+            c->c.put("jti","not-uuid"),
+            c->c.put("legalEntityUuids",List.of(legal.toString(),legal.toString())),
+            c->c.put("legalEntityUuids",List.of("invalid")),
+            c->c.put("legalEntityUuids",List.of()),
+            c->c.put("cnf",Map.of("x5t#S256","abc")),
+            c->c.put("cnf",Map.of("x5t#S256",B64.encodeToString(gatewayFingerprint),"extra",true)),
+            c->c.put("unknownField","value"),
+            c->c.remove("policyRevision"),
+            c->c.put("exp",now+61)
+        );
+        for(var mutation:invalid) {
+            Map<String,Object> changed=new LinkedHashMap<>(original);
+            mutation.accept(changed);
+            String signed=signClaims(pair,head,changed);
+            assertThrows(StatusRuntimeException.class,()->verifier(pair).verify(
+                signed,"LIST_ROUTES",gateway),"mutation="+changed);
+        }
+    }
+    /** TR-SEC-03: Header/JWS не допускают дополнительные или дублированные поля. */
+    @Test void strictHeaderAndSignatureBase64Url()throws Exception {
+        KeyPair pair=keys();
+        String valid=token(pair,"LIST_ROUTES","qropass-transport-catalog",
+            B64.encodeToString(gatewayFingerprint),clock.instant().getEpochSecond()+30);
+        String[] parts=valid.split("\\.");
+        ObjectMapper json=new ObjectMapper();
+        @SuppressWarnings("unchecked")
+        Map<String,Object> original=json.readValue(Base64.getUrlDecoder().decode(parts[1]),Map.class);
+        assertThrows(StatusRuntimeException.class,()->verifier(pair).verify(
+            signClaims(pair,Map.of("alg","none","typ","JWT","kid","core-key-1"),original),
+            "LIST_ROUTES",gateway));
+        assertThrows(StatusRuntimeException.class,()->verifier(pair).verify(
+            signClaims(pair,Map.of("alg","EdDSA","typ","JWT","kid","core-key-1","x",1),original),
+            "LIST_ROUTES",gateway));
+        assertThrows(StatusRuntimeException.class,()->verifier(pair).verify(valid+"=","LIST_ROUTES",gateway));
+    }
+
     @Test void mTlsInterceptorWithoutSessionRejects() {
         io.grpc.ServerCall<String,String> call=org.mockito.Mockito.mock(io.grpc.ServerCall.class);
         org.mockito.Mockito.when(call.getAttributes()).thenReturn(io.grpc.Attributes.EMPTY);

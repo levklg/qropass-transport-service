@@ -170,8 +170,8 @@ class TransportCatalogIntegrationTest {
         assertEquals(0,scoped.listVersions(ListRoutePatternVersionsRequest.newBuilder()
             .setPublicationStatus("DRAFT").build(),pubScope).getTotalCount());
 
-        assertEquals(0,scoped.listStops(ListPatternStopsRequest.newBuilder()
-            .setVersionId(draft.version().toString()).build(),pubScope).getTotalCount());
+        assertThrows(java.util.NoSuchElementException.class,()->scoped.listStops(
+            ListPatternStopsRequest.newBuilder().setVersionId(draft.version().toString()).build(),pubScope));
         assertThrows(java.util.NoSuchElementException.class,
             ()->scoped.getVersion(GetRoutePatternVersionRequest.newBuilder()
                 .setVersionId(draft.version().toString()).build(),pubScope));
@@ -208,6 +208,39 @@ class TransportCatalogIntegrationTest {
             for(var f:pool.invokeAll(calls))
                 assertTrue(f.get(15,java.util.concurrent.TimeUnit.SECONDS));
         } finally { pool.shutdownNow(); }
+    }
+
+    /** TR-SEC-02: чужая, скрытая и несуществующая версия дают одинаковый NOT_FOUND. */
+    @Test void listStopsRejectsForeignHiddenAndMissingVersionWithoutLeakingExistence() {
+        Fixture a=seed(false),b=seed(true);
+        var scope=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(a.legal()),false,true);
+        var foreign=ListPatternStopsRequest.newBuilder().setVersionId(b.version().toString()).build();
+        var absent=ListPatternStopsRequest.newBuilder().setVersionId(UUID.randomUUID().toString()).build();
+        var invisible=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(a.legal()),true,false);
+        var own=ListPatternStopsRequest.newBuilder().setVersionId(a.version().toString()).build();
+        var foreignError=assertThrows(java.util.NoSuchElementException.class,
+            ()->scoped.listStops(foreign,scope));
+        var absentError=assertThrows(java.util.NoSuchElementException.class,
+            ()->scoped.listStops(absent,scope));
+        var hiddenError=assertThrows(java.util.NoSuchElementException.class,
+            ()->scoped.listStops(own,invisible));
+        assertEquals(foreignError.getMessage(),absentError.getMessage());
+        assertEquals(foreignError.getMessage(),hiddenError.getMessage());
+    }
+
+    /** TR-SEC-02: разрешённая версия существует, хотя у неё нет остановок. */
+    @Test void listStopsAllowsEmptyAccessibleDraftVersion() {
+        Fixture a=seed(false);
+        jdbc.update("DELETE FROM fare_section WHERE pattern_version_id=?",a.version());
+        jdbc.update("DELETE FROM stop_occurrence WHERE pattern_version_id=?",a.version());
+        var scope=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(a.legal()),false,true);
+        var response=scoped.listStops(ListPatternStopsRequest.newBuilder()
+            .setVersionId(a.version().toString()).build(),scope);
+        assertEquals(0,response.getTotalCount());
+        assertEquals(0,response.getStopsCount());
     }
 
     /** Отсутствующая версия не замещается фиктивным ответом. */

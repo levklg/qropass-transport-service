@@ -15,11 +15,35 @@ import static org.junit.jupiter.api.Assertions.*;
 /** Криптография, связность полномочий, fail-closed Core и поле №16. */
 class CatalogDelegationSecurityTest {
     private final UUID legal=UUID.fromString("00000000-0000-0000-0000-000000000111");
-    private final byte[] gatewayFingerprint=new byte[32];
-    private final GatewayTlsPeer.Verified gateway=new GatewayTlsPeer.Verified("CN=qropass-panel-gateway",gatewayFingerprint);
+    private final byte[] gatewayFingerprint=fingerprint(new byte[]{48,3,2,1,5});
+    private final GatewayTlsPeer.Verified gateway=trustedPeer(new byte[]{48,3,2,1,5});
     private final Clock clock=Clock.fixed(Instant.parse("2026-10-26T12:00:00Z"),ZoneOffset.UTC);
     private static final Base64.Encoder B64=Base64.getUrlEncoder().withoutPadding();
 
+    /** Тестовый источник: mocked TLS session, не production-конструктор Verified. */
+    private static GatewayTlsPeer.Verified trustedPeer(byte[] der) {
+        try {
+            java.security.cert.X509Certificate cert=org.mockito.Mockito.mock(java.security.cert.X509Certificate.class);
+            org.mockito.Mockito.when(cert.getEncoded()).thenReturn(der);
+            javax.net.ssl.SSLSession tls=org.mockito.Mockito.mock(javax.net.ssl.SSLSession.class);
+            org.mockito.Mockito.when(tls.getPeerCertificates()).thenReturn(
+                new java.security.cert.Certificate[]{cert});
+            org.mockito.Mockito.when(tls.getPeerPrincipal()).thenReturn(
+                new javax.security.auth.x500.X500Principal("CN=qropass-panel-gateway"));
+            @SuppressWarnings("unchecked")
+            io.grpc.ServerCall<String,String> call=org.mockito.Mockito.mock(io.grpc.ServerCall.class);
+            org.mockito.Mockito.when(call.getAttributes()).thenReturn(io.grpc.Attributes.newBuilder()
+                .set(io.grpc.Grpc.TRANSPORT_ATTR_SSL_SESSION,tls).build());
+            return GatewayTlsPeer.fromCall(call,"CN=qropass-panel-gateway");
+        } catch(Exception ex) { throw new AssertionError(ex); }
+    }
+    private static byte[] fingerprint(byte[] der) {
+        try { return MessageDigest.getInstance("SHA-256").digest(der); }
+        catch(Exception ex) { throw new AssertionError(ex); }
+    }
+    @Test void verifiedPeerHasNoPublicConstructors() {
+        assertEquals(0,GatewayTlsPeer.Verified.class.getConstructors().length);
+    }
     private static KeyPair keys()throws Exception {
         KeyPairGenerator generator=KeyPairGenerator.getInstance("Ed25519");
         return generator.generateKeyPair();
@@ -70,7 +94,7 @@ class CatalogDelegationSecurityTest {
         String good=token(pair,"LIST_ROUTES","qropass-transport-catalog",B64.encodeToString(gatewayFingerprint),exp);
         assertThrows(StatusRuntimeException.class,()->verifier(pair).verify(good,"GET_ROUTE_PATTERN_VERSION",gateway));
         String badCnf=token(pair,"LIST_ROUTES","qropass-transport-catalog",B64.encodeToString(new byte[32]),exp);
-        GatewayTlsPeer.Verified different=new GatewayTlsPeer.Verified("CN=qropass-panel-gateway",new byte[]{1,2,3});
+        GatewayTlsPeer.Verified different=trustedPeer(new byte[]{1,2,3});
         assertThrows(StatusRuntimeException.class,()->verifier(pair).verify(badCnf,"LIST_ROUTES",different));
         String expired=token(pair,"LIST_ROUTES","qropass-transport-catalog",
             B64.encodeToString(gatewayFingerprint),clock.instant().getEpochSecond()-1);

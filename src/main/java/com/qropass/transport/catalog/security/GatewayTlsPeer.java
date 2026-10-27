@@ -41,8 +41,15 @@ public final class GatewayTlsPeer {
     }
 
     /** Значение из TLS; массив нельзя изменять извне. */
-    public record Verified(String serviceIdentity,byte[] certificateSha256) {
-        public Verified { certificateSha256=certificateSha256.clone(); }
-        @Override public byte[] certificateSha256() { return certificateSha256.clone(); }
+    /** Создаётся исключительно из проверенного peer TLS-сеанса. */
+    public static final class Verified {
+        private final String serviceIdentity;
+        private final byte[] certificateSha256;
+        private Verified(String serviceIdentity,byte[] certificateSha256) {
+            this.serviceIdentity=serviceIdentity;
+            this.certificateSha256=certificateSha256.clone();
+        }
+        public String serviceIdentity() { return serviceIdentity; }
+        public byte[] certificateSha256() { return certificateSha256.clone(); }
     }
 }

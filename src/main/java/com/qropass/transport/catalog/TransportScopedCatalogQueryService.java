@@ -208,6 +208,15 @@ public class TransportScopedCatalogQueryService {
         UUID id=uuid(request.getVersionId(),true);
         Filter f=filter(scope);
         int n=size(request.getPage());long skip=offset(request.getPage(),n);
+        // Существование проверяется по родительской версии, а не по числу StopOccurrence.
+        // Не различаем чужую, скрытую и отсутствующую версию.
+        List<Object> parentArgs=args(id);
+        parentArgs.addAll(java.util.Arrays.asList(f.args()));
+        Boolean visible=jdbc.queryForObject(
+            "SELECT EXISTS(SELECT 1 FROM route_pattern_version v WHERE v.id=? AND "+
+                qualifiedVersionScope("v",f)+")",Boolean.class,parentArgs.toArray());
+        if(!Boolean.TRUE.equals(visible))
+            throw new java.util.NoSuchElementException("Разрешённая версия не найдена");
         String where=" WHERE o.pattern_version_id=? AND "+qualifiedVersionScope("v",f);
         List<Object> values=args(id);
         values.addAll(java.util.Arrays.asList(f.args()));

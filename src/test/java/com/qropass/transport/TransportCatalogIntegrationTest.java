@@ -206,6 +206,24 @@ class TransportCatalogIntegrationTest {
             ListRoutePatternVersionsRequest.getDefaultInstance(),both));
     }
 
+    /** SEC-TR-008-01: поиск идентичности не различает чужую, скрытую и отсутствующую версии. */
+    @Test void scopedVersionIdentityPreventsExistenceOracle() {
+        Fixture own=seed(false),foreign=seed(true);
+        var scope=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(own.legal()),false,true);
+        assertEquals(own.legal(),scoped.requireVisibleVersionIdentity(own.version(),scope).legalEntityId());
+        var missing=assertThrows(java.util.NoSuchElementException.class,
+            ()->scoped.requireVisibleVersionIdentity(UUID.randomUUID(),scope));
+        var other=assertThrows(java.util.NoSuchElementException.class,
+            ()->scoped.requireVisibleVersionIdentity(foreign.version(),scope));
+        var hidden=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(own.legal()),true,false);
+        var invisible=assertThrows(java.util.NoSuchElementException.class,
+            ()->scoped.requireVisibleVersionIdentity(own.version(),hidden));
+        assertEquals(missing.getMessage(),other.getMessage());
+        assertEquals(missing.getMessage(),invisible.getMessage());
+    }
+
     /** Параллельные запросы двух организаций не смешивают подтверждённые области. */
     @Test void simultaneousOrganizationScopesRemainIsolated()throws Exception {
         Fixture left=seed(true),right=seed(true);

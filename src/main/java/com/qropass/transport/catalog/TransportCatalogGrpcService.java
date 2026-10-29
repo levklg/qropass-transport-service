@@ -65,8 +65,15 @@ public class TransportCatalogGrpcService extends TransportCatalogServiceGrpc.Tra
             CatalogRequestCanonicalizer.validate(request,CatalogOperation.GET_ROUTE_PATTERN_VERSION);
             if(queries==null) access.requireAuthorized(null);
             UUID id=uuid(request.getVersionId(),true);
-            UUID legal=queries.requireVersionIdentity(id).legalEntityId();
+            // Сначала Core подтверждает всю подписанную область без предметного SQL.
+            Scope preliminary=access.requireAuthorized(CatalogOperation.GET_ROUTE_PATTERN_VERSION,null);
+            UUID legal=queries.requireVisibleVersionIdentity(id,preliminary).legalEntityId();
+            // Повторная целевая проверка Core обязательна; область не расширяется.
             Scope scope=access.requireAuthorized(CatalogOperation.GET_ROUTE_PATTERN_VERSION,legal);
+            if(!preliminary.organizations().containsAll(scope.organizations()) ||
+                (scope.published() && !preliminary.published()) ||
+                (scope.drafts() && !preliminary.drafts()))
+                throw io.grpc.Status.PERMISSION_DENIED.withDescription("Область авторизации изменилась").asRuntimeException();
             return queries.getVersion(request,scope);
         });
     }
@@ -76,8 +83,15 @@ public class TransportCatalogGrpcService extends TransportCatalogServiceGrpc.Tra
             CatalogRequestCanonicalizer.validate(request,CatalogOperation.LIST_PATTERN_STOPS);
             if(queries==null) access.requireAuthorized(null);
             UUID id=uuid(request.getVersionId(),true);
-            UUID legal=queries.requireVersionIdentity(id).legalEntityId();
+            // Сначала Core подтверждает всю подписанную область без предметного SQL.
+            Scope preliminary=access.requireAuthorized(CatalogOperation.LIST_PATTERN_STOPS,null);
+            UUID legal=queries.requireVisibleVersionIdentity(id,preliminary).legalEntityId();
+            // Повторная целевая проверка Core обязательна; область не расширяется.
             Scope scope=access.requireAuthorized(CatalogOperation.LIST_PATTERN_STOPS,legal);
+            if(!preliminary.organizations().containsAll(scope.organizations()) ||
+                (scope.published() && !preliminary.published()) ||
+                (scope.drafts() && !preliminary.drafts()))
+                throw io.grpc.Status.PERMISSION_DENIED.withDescription("Область авторизации изменилась").asRuntimeException();
             return queries.listStops(request,scope);
         });
     }

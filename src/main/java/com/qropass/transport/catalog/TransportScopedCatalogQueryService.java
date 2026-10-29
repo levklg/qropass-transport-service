@@ -40,6 +40,24 @@ public class TransportScopedCatalogQueryService {
         return rows.get(0);
     }
 
+    /** Находит идентичность версии только внутри области, подтверждённой Core.
+     * Для отсутствующей, чужой и скрытой версии использует одинаковый отказ.
+     */
+    @Transactional(readOnly=true)
+    public VersionIdentity requireVisibleVersionIdentity(UUID id,Scope scope) {
+        Filter f=filter(scope);
+        List<Object> args=new ArrayList<>();
+        args.add(id);
+        args.addAll(java.util.Arrays.asList(f.args()));
+        List<VersionIdentity> rows=jdbc.query(
+            "SELECT v.legal_entity_id,v.status FROM route_pattern_version v WHERE v.id=? AND "+
+                qualifiedVersionScope("v",f),
+            (rs,n)->new VersionIdentity((UUID)rs.getObject(1),"PUBLISHED".equals(rs.getString(2))),
+            args.toArray());
+        if(rows.isEmpty()) throw new java.util.NoSuchElementException("Версия не найдена");
+        return rows.get(0);
+    }
+
     private record Filter(String placeholders,Object[] args,String visibility) {}
     private static Filter filter(Scope scope) {
         if(scope==null || scope.organizations().isEmpty() || !scope.published() && !scope.drafts())

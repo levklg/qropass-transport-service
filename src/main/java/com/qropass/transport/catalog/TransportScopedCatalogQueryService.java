@@ -31,15 +31,6 @@ public class TransportScopedCatalogQueryService {
     public record VersionIdentity(UUID legalEntityId,boolean published) {}
 
     /** Не выдаёт никаких данных версии клиенту до авторизации. */
-    @Transactional(readOnly=true)
-    public VersionIdentity requireVersionIdentity(UUID id) {
-        List<VersionIdentity> rows=jdbc.query(
-            "SELECT legal_entity_id,status FROM route_pattern_version WHERE id=?",
-            (rs,n)->new VersionIdentity((UUID)rs.getObject(1),"PUBLISHED".equals(rs.getString(2))),id);
-        if(rows.isEmpty()) throw new java.util.NoSuchElementException("Версия не найдена");
-        return rows.get(0);
-    }
-
     /** Находит идентичность версии только внутри области, подтверждённой Core.
      * Для отсутствующей, чужой и скрытой версии использует одинаковый отказ.
      */

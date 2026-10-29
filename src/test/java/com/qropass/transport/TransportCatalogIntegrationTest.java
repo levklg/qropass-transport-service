@@ -184,6 +184,28 @@ class TransportCatalogIntegrationTest {
         assertEquals(publication.publish(published.version()),snapshot.getVersion().getContentFingerprint());
     }
 
+    /** C1: пустой статус допускается только при двух подтверждённых разрешениях. */
+    @Test void cexPublicationStatusRequiresExplicitFilterForSingleClassScope() {
+        Fixture draft=seed(false),published=seed(true);
+        var onlyDraft=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(draft.legal()),false,true);
+        var onlyPublished=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(published.legal()),true,false);
+        var both=new com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope(
+            java.util.Set.of(draft.legal(),published.legal()),true,true);
+        var noStatus=ListRoutePatternVersionsRequest.newBuilder()
+            .setPatternId(draft.pattern().toString()).build();
+        assertThrows(IllegalArgumentException.class,()->scoped.listVersions(noStatus,onlyDraft));
+        assertThrows(IllegalArgumentException.class,()->scoped.listVersions(noStatus,onlyPublished));
+        assertEquals(1,scoped.listVersions(noStatus,both).getTotalCount());
+        assertEquals(1,scoped.listVersions(ListRoutePatternVersionsRequest.newBuilder()
+            .setPatternId(draft.pattern().toString()).setPublicationStatus("DRAFT").build(),onlyDraft).getTotalCount());
+        assertEquals(0,scoped.listVersions(ListRoutePatternVersionsRequest.newBuilder()
+            .setPatternId(draft.pattern().toString()).setPublicationStatus("PUBLISHED").build(),onlyDraft).getTotalCount());
+        assertThrows(IllegalArgumentException.class,()->scoped.listVersions(
+            ListRoutePatternVersionsRequest.getDefaultInstance(),both));
+    }
+
     /** Параллельные запросы двух организаций не смешивают подтверждённые области. */
     @Test void simultaneousOrganizationScopesRemainIsolated()throws Exception {
         Fixture left=seed(true),right=seed(true);

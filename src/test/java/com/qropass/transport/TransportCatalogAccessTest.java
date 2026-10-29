@@ -29,11 +29,11 @@ class TransportCatalogAccessTest {
         assertEquals(Status.Code.UNAUTHENTICATED,code(
             (StreamObserver<ListRoutePatternsResponse> o)->catalog.listRoutePatterns(ListRoutePatternsRequest.newBuilder().build(),o)));
         assertEquals(Status.Code.UNAUTHENTICATED,code(
-            (StreamObserver<ListRoutePatternVersionsResponse> o)->catalog.listRoutePatternVersions(ListRoutePatternVersionsRequest.newBuilder().build(),o)));
+            (StreamObserver<ListRoutePatternVersionsResponse> o)->catalog.listRoutePatternVersions(ListRoutePatternVersionsRequest.newBuilder().setPatternId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").build(),o)));
         assertEquals(Status.Code.UNAUTHENTICATED,code(
-            (StreamObserver<GetRoutePatternVersionResponse> o)->catalog.getRoutePatternVersion(GetRoutePatternVersionRequest.newBuilder().build(),o)));
+            (StreamObserver<GetRoutePatternVersionResponse> o)->catalog.getRoutePatternVersion(GetRoutePatternVersionRequest.newBuilder().setVersionId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").build(),o)));
         assertEquals(Status.Code.UNAUTHENTICATED,code(
-            (StreamObserver<ListPatternStopsResponse> o)->catalog.listPatternStops(ListPatternStopsRequest.newBuilder().build(),o)));
+            (StreamObserver<ListPatternStopsResponse> o)->catalog.listPatternStops(ListPatternStopsRequest.newBuilder().setVersionId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").build(),o)));
     }
     /** Некорректный UUID не позволяет обойти проверку. */
     @Test void invalidLegalEntityIdRejected() {

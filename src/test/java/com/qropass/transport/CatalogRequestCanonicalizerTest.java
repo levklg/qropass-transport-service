@@ -46,7 +46,7 @@ class CatalogRequestCanonicalizerTest {
     }
     @Test void strictUuidRequiredIdentifiersAndOperation() {
         assertThrows(IllegalArgumentException.class,()->digest(
-            ListRoutesRequest.newBuilder().setLegalEntityId(A.toUpperCase()).build(),CatalogOperation.LIST_ROUTES));
+            ListRoutesRequest.newBuilder().setLegalEntityId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".toUpperCase()).build(),CatalogOperation.LIST_ROUTES));
         assertThrows(IllegalArgumentException.class,()->digest(
             ListRoutesRequest.newBuilder().setLegalEntityId("1111").build(),CatalogOperation.LIST_ROUTES));
         assertThrows(IllegalArgumentException.class,()->digest(

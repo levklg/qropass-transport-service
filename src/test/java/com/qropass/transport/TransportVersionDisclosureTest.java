@@ -94,14 +94,14 @@ class TransportVersionDisclosureTest {
         TransportScopedCatalogQueryService queries=mock(TransportScopedCatalogQueryService.class);
         TransportCatalogGrpcService service=new TransportCatalogGrpcService(policy,queries);
         var bad=GetRoutePatternVersionRequest.newBuilder().setVersionId(V.toString().toUpperCase()).build();
-        Outcome result=invoke(o->service.getRoutePatternVersion(bad,o));
+        Outcome result=TransportVersionDisclosureTest.<GetRoutePatternVersionResponse>invoke(o->service.getRoutePatternVersion(bad,o));
         assertEquals(Status.Code.INVALID_ARGUMENT,result.code());
         verifyNoInteractions(policy,queries);
     }
     private static Outcome call(TransportCatalogGrpcService service,boolean stops) {
-        return stops?invoke(o->service.listPatternStops(
+        return stops?TransportVersionDisclosureTest.<ListPatternStopsResponse>invoke(o->service.listPatternStops(
             ListPatternStopsRequest.newBuilder().setVersionId(V.toString()).build(),o))
-            :invoke(o->service.getRoutePatternVersion(
+            :TransportVersionDisclosureTest.<GetRoutePatternVersionResponse>invoke(o->service.getRoutePatternVersion(
                 GetRoutePatternVersionRequest.newBuilder().setVersionId(V.toString()).build(),o));
     }
 }

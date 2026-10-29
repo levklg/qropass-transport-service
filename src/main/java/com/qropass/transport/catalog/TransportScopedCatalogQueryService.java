@@ -61,7 +61,7 @@ public class TransportScopedCatalogQueryService {
             if(mandatory) throw new IllegalArgumentException("Отсутствует обязательный UUID");
             return null;
         }
-        try { return UUID.fromString(input); }
+        try { return CatalogRequestCanonicalizer.strictUuid(input); }
         catch(IllegalArgumentException ex) { throw new IllegalArgumentException("Некорректный UUID",ex); }
     }
     private static int size(PageRequest page) {
@@ -150,12 +150,14 @@ public class TransportScopedCatalogQueryService {
     @Transactional(readOnly=true)
     public ListRoutePatternVersionsResponse listVersions(ListRoutePatternVersionsRequest request,Scope scope) {
         Filter f=filter(scope);
-        UUID pattern=uuid(request.getPatternId(),false),legal=uuid(request.getLegalEntityId(),false);
+        UUID pattern=uuid(request.getPatternId(),true),legal=uuid(request.getLegalEntityId(),false);
         if(legal!=null && !scope.organizations().contains(legal))
             return ListRoutePatternVersionsResponse.getDefaultInstance();
         String status=request.getPublicationStatus();
         if(!status.isEmpty() && !status.equals("DRAFT") && !status.equals("PUBLISHED"))
             throw new IllegalArgumentException("Неверный статус публикации");
+        if(status.isEmpty() && (!scope.drafts() || !scope.published()))
+            throw new IllegalArgumentException("Требуется явный статус публикации");
         if(status.equals("DRAFT") && !scope.drafts() || status.equals("PUBLISHED") && !scope.published())
             return ListRoutePatternVersionsResponse.getDefaultInstance();
         int n=size(request.getPage());long skip=offset(request.getPage(),n);

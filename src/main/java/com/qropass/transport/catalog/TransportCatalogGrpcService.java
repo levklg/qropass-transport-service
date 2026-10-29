@@ -2,6 +2,7 @@ package com.qropass.transport.catalog;
 
 import com.qropass.grpc.panel.security.v1.CatalogOperation;
 import com.qropass.transport.catalog.security.CatalogDelegationAuthorizer.Scope;
+import com.qropass.transport.catalog.CatalogRequestCanonicalizer;
 import com.qropass.transport.grpc.v1.*;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -34,6 +35,7 @@ public class TransportCatalogGrpcService extends TransportCatalogServiceGrpc.Tra
     }
     @Override public void listRoutes(ListRoutesRequest request,StreamObserver<ListRoutesResponse> observer) {
         execute(observer,()->{
+            CatalogRequestCanonicalizer.validate(request,CatalogOperation.LIST_ROUTES);
             UUID legal=uuid(request.getLegalEntityId(),false);
             Scope scope=access.requireAuthorized(CatalogOperation.LIST_ROUTES,legal);
             return queries.listRoutes(request,scope);
@@ -42,6 +44,7 @@ public class TransportCatalogGrpcService extends TransportCatalogServiceGrpc.Tra
     @Override public void listRoutePatterns(ListRoutePatternsRequest request,
                                               StreamObserver<ListRoutePatternsResponse> observer) {
         execute(observer,()->{
+            CatalogRequestCanonicalizer.validate(request,CatalogOperation.LIST_ROUTE_PATTERNS);
             UUID legal=uuid(request.getLegalEntityId(),false);
             Scope scope=access.requireAuthorized(CatalogOperation.LIST_ROUTE_PATTERNS,legal);
             return queries.listPatterns(request,scope);
@@ -50,6 +53,7 @@ public class TransportCatalogGrpcService extends TransportCatalogServiceGrpc.Tra
     @Override public void listRoutePatternVersions(ListRoutePatternVersionsRequest request,
                                                      StreamObserver<ListRoutePatternVersionsResponse> observer) {
         execute(observer,()->{
+            CatalogRequestCanonicalizer.validate(request,CatalogOperation.LIST_ROUTE_PATTERN_VERSIONS);
             UUID legal=uuid(request.getLegalEntityId(),false);
             Scope scope=access.requireAuthorized(CatalogOperation.LIST_ROUTE_PATTERN_VERSIONS,legal);
             return queries.listVersions(request,scope);
@@ -58,6 +62,7 @@ public class TransportCatalogGrpcService extends TransportCatalogServiceGrpc.Tra
     @Override public void getRoutePatternVersion(GetRoutePatternVersionRequest request,
                                                    StreamObserver<GetRoutePatternVersionResponse> observer) {
         execute(observer,()->{
+            CatalogRequestCanonicalizer.validate(request,CatalogOperation.GET_ROUTE_PATTERN_VERSION);
             if(queries==null) access.requireAuthorized(null);
             UUID id=uuid(request.getVersionId(),true);
             UUID legal=queries.requireVersionIdentity(id).legalEntityId();
@@ -68,6 +73,7 @@ public class TransportCatalogGrpcService extends TransportCatalogServiceGrpc.Tra
     @Override public void listPatternStops(ListPatternStopsRequest request,
                                              StreamObserver<ListPatternStopsResponse> observer) {
         execute(observer,()->{
+            CatalogRequestCanonicalizer.validate(request,CatalogOperation.LIST_PATTERN_STOPS);
             if(queries==null) access.requireAuthorized(null);
             UUID id=uuid(request.getVersionId(),true);
             UUID legal=queries.requireVersionIdentity(id).legalEntityId();
@@ -80,7 +86,7 @@ public class TransportCatalogGrpcService extends TransportCatalogServiceGrpc.Tra
             if(mandatory) throw new IllegalArgumentException("Требуется идентификатор версии");
             return null;
         }
-        try { return UUID.fromString(text); }
+        try { return CatalogRequestCanonicalizer.strictUuid(text); }
         catch(IllegalArgumentException ex) { throw new IllegalArgumentException("Некорректный UUID",ex); }
     }
     private static <T> void execute(StreamObserver<T> observer,Supplier<T> action) {

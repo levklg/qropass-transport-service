@@ -163,12 +163,12 @@ class TransportCatalogIntegrationTest {
             .getTotalCount());
         assertEquals(0,scoped.listPatterns(ListRoutePatternsRequest.newBuilder()
             .setLegalEntityId(published.legal().toString()).build(),draftScope).getTotalCount());
-        assertEquals(1,scoped.listVersions(ListRoutePatternVersionsRequest.getDefaultInstance(),pubScope)
+        assertEquals(1,scoped.listVersions(ListRoutePatternVersionsRequest.newBuilder().setPatternId(published.pattern().toString()).setPublicationStatus("PUBLISHED").build(),pubScope)
             .getTotalCount());
-        assertEquals(1,scoped.listVersions(ListRoutePatternVersionsRequest.getDefaultInstance(),draftScope)
+        assertEquals(1,scoped.listVersions(ListRoutePatternVersionsRequest.newBuilder().setPatternId(draft.pattern().toString()).setPublicationStatus("DRAFT").build(),draftScope)
             .getTotalCount());
         assertEquals(0,scoped.listVersions(ListRoutePatternVersionsRequest.newBuilder()
-            .setPublicationStatus("DRAFT").build(),pubScope).getTotalCount());
+            .setPatternId(published.pattern().toString()).setPublicationStatus("DRAFT").build(),pubScope).getTotalCount());
 
         assertThrows(java.util.NoSuchElementException.class,()->scoped.listStops(
             ListPatternStopsRequest.newBuilder().setVersionId(draft.version().toString()).build(),pubScope));

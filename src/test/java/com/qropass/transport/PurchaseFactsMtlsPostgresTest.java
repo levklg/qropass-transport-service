@@ -55,6 +55,11 @@ class PurchaseFactsMtlsPostgresTest {
         cert("gateway","spiffe://qropass.test/gateway","clientAuth",false);
         cert("wrong","spiffe://qropass.test/wrong","clientAuth",false);
         cert("server-only",CORE,"serverAuth",false);
+        run("openssl","req","-x509","-newkey","rsa:2048","-nodes",
+            "-keyout",path("rogue-ca.key"),"-out",path("rogue-ca.crt"),"-days","1",
+            "-subj","/CN=TEST-ONLY-ROGUE-CA","-addext","basicConstraints=critical,CA:TRUE",
+            "-addext","keyUsage=critical,keyCertSign,cRLSign");
+        cert("rogue",CORE,"clientAuth",true);
     }
     private static String path(String s){return dir.resolve(s).toString();}
     private static void run(String...cmd)throws Exception {
@@ -67,8 +72,8 @@ class PurchaseFactsMtlsPostgresTest {
             "-out",path(name+".csr"),"-subj","/CN=TEST-ONLY-"+name);
         Files.writeString(dir.resolve(name+".ext"),"basicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage="+eku+
             "\nsubjectAltName=URI:"+uri+"\n");
-        run("openssl","x509","-req","-in",path(name+".csr"),"-CA",path("ca.crt"),"-CAkey",
-            path("ca.key"),"-CAcreateserial","-out",path(name+".crt"),"-days","1",
+        run("openssl","x509","-req","-in",path(name+".csr"),"-CA",path(otherCA?"rogue-ca.crt":"ca.crt"),"-CAkey",
+            path(otherCA?"rogue-ca.key":"ca.key"),"-CAcreateserial","-out",path(name+".crt"),"-days","1",
             "-extfile",path(name+".ext"));
     }
     @AfterAll static void cleanup() throws Exception {
@@ -153,6 +158,27 @@ class PurchaseFactsMtlsPostgresTest {
     @Test void missingClientAuthEkuRejected() throws Exception {
         assertThrows(StatusRuntimeException.class,
             ()->client("server-only",true).resolveCityTransportContext(request()));
+    }
+    /** Неизвестный центр сертификации не может аутентифицировать Core. */
+    @Test void unknownCertificateAuthorityRejectedAtTlsHandshake() throws Exception {
+        assertThrows(StatusRuntimeException.class,
+            ()->client("rogue",true).resolveCityTransportContext(request()));
+    }
+    /** Другой RPC отсутствует в test-only listener и не исполняет SQL. */
+    @Test void unauthorizedMethodCannotBeCalled() throws Exception {
+        var stub=client("core",true);
+        var otherMethod=io.grpc.MethodDescriptor.<ResolveCityTransportContextRequest,
+            ResolveCityTransportContextResponse>newBuilder()
+            .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+            .setFullMethodName("qropass.transport.catalog.v1.TransportCatalogService/ListRoutes")
+            .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                ResolveCityTransportContextRequest.getDefaultInstance()))
+            .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                ResolveCityTransportContextResponse.getDefaultInstance())).build();
+        var denied=assertThrows(StatusRuntimeException.class,()->io.grpc.stub.ClientCalls.blockingUnaryCall(
+            channel,otherMethod,io.grpc.CallOptions.DEFAULT.withDeadlineAfter(4,
+                java.util.concurrent.TimeUnit.SECONDS),request()));
+        assertEquals(Status.Code.UNIMPLEMENTED,denied.getStatus().getCode());
     }
     @Test void invalidInputAndUnconfirmedOrganizationRejected() throws Exception {
         var stub=client("core",true);

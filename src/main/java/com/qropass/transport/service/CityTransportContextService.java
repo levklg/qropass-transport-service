@@ -49,7 +49,7 @@ public class CityTransportContextService {
             "AND valid_from IS NOT NULL AND valid_from<=? "+
             "AND (valid_until IS NULL OR valid_until>?) "+
             "AND evidence_reference IS NOT NULL AND btrim(evidence_reference)<>''",
-            Integer.class,legalId,routeId,at,at);
+            Integer.class,legalId,routeId,java.sql.Timestamp.from(at),java.sql.Timestamp.from(at));
         if(validAssignments==null || validAssignments!=1)
             throw new SecurityException("Не подтверждено однозначное назначение перевозчика");
 
@@ -67,7 +67,7 @@ public class CityTransportContextService {
                 rs.getTimestamp(5).toInstant(),
                 rs.getTimestamp(6)==null?null:rs.getTimestamp(6).toInstant(),
                 rs.getString(7),false,false),
-            versionId,legalId,routeId,at,at);
+            versionId,legalId,routeId,java.sql.Timestamp.from(at),java.sql.Timestamp.from(at));
         if(versions.size()!=1) throw new SecurityException("Нет однозначной действующей опубликованной версии");
         return versions.get(0);
     }

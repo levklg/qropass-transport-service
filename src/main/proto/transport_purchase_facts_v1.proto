@@ -1,0 +1,30 @@
+syntax = "proto3";
+package qropass.transport.purchasefacts.v1;
+option java_package = "com.qropass.transport.grpc.purchasefacts.v1";
+option java_multiple_files = true;
+option java_outer_classname = "TransportPurchaseFactsV1Proto";
+
+// Только внутренний изолированный Core → Transport метод.
+service TransportPurchaseFactsService {
+  rpc ResolveCityTransportContext(ResolveCityTransportContextRequest)
+      returns (ResolveCityTransportContextResponse);
+}
+message ResolveCityTransportContextRequest {
+  string legal_entity_inn = 1;
+  string route_id = 2;
+  string pattern_version_id = 3;
+}
+message ResolveCityTransportContextResponse {
+  string legal_entity_id = 1;
+  string legal_entity_inn = 2;
+  string route_id = 3;
+  string direction_id = 4;
+  string pattern_id = 5;
+  string pattern_version_id = 6;
+  string publication_status = 7;
+  string effective_from = 8;
+  string effective_until = 9;
+  string content_fingerprint = 10;
+  bool city_category_confirmed = 11;
+  bool sale_permitted = 12;
+}

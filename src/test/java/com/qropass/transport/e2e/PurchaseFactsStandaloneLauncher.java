@@ -41,12 +41,11 @@ public final class PurchaseFactsStandaloneLauncher {
         if(port<0 || port>65535) throw new IllegalArgumentException("Некорректный test-only порт");
         try(ConfigurableApplicationContext context=new SpringApplicationBuilder(TransportApplication.class)
                 .web(WebApplicationType.NONE)
-                .properties("spring.datasource.url="+jdbc,
-                    "spring.datasource.username="+required(env,"QRP_TEST_DB_USER"),
-                    "spring.datasource.password="+required(env,"QRP_TEST_DB_PASSWORD"),
-                    "spring.flyway.enabled=true",
-                    "spring.jpa.hibernate.ddl-auto=validate")
-                .run()) {
+                .run("--spring.datasource.url="+jdbc,
+                    "--spring.datasource.username="+required(env,"QRP_TEST_DB_USER"),
+                    "--spring.datasource.password="+required(env,"QRP_TEST_DB_PASSWORD"),
+                    "--spring.flyway.enabled=true",
+                    "--spring.jpa.hibernate.ddl-auto=validate")) {
             if("YES".equals(env.get("QRP_TEST_SEED")))
                 PurchaseFactsE2EFixtureSeeder.seed(context.getBean(JdbcTemplate.class),
                     context.getBean(TransportPublicationService.class));

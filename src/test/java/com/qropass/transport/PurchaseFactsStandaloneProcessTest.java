@@ -24,10 +24,10 @@ class PurchaseFactsStandaloneProcessTest {
             Process process=null;
             ManagedChannel channel=null;
             try {
-                String java=java.nio.file.Path.of(System.getProperty("java.home"),"bin","java").toString();
+                String javaExecutable=java.nio.file.Path.of(System.getProperty("java.home"),"bin","java").toString();
                 String classpath=System.getProperty("surefire.test.class.path",
                     System.getProperty("java.class.path"));
-                ProcessBuilder builder=new ProcessBuilder(java,"-cp",classpath,
+                ProcessBuilder builder=new ProcessBuilder(javaExecutable,"-cp",classpath,
                     "com.qropass.transport.e2e.PurchaseFactsStandaloneLauncher");
                 builder.redirectErrorStream(true);
                 var env=builder.environment();

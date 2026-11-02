@@ -4,6 +4,8 @@ import com.qropass.transport.TransportApplication;
 import com.qropass.transport.purchasefacts.CorePurchaseFactsTlsInterceptor;
 import com.qropass.transport.purchasefacts.TransportPurchaseFactsGrpcService;
 import com.qropass.transport.service.CityTransportContextService;
+import com.qropass.transport.service.TransportPublicationService;
+import org.springframework.jdbc.core.JdbcTemplate;
 import io.grpc.Server;
 import io.grpc.ServerInterceptors;
 import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
@@ -45,8 +47,11 @@ public final class PurchaseFactsStandaloneLauncher {
                     "spring.flyway.enabled=true",
                     "spring.jpa.hibernate.ddl-auto=validate")
                 .run()) {
+            if("YES".equals(env.get("QRP_TEST_SEED")))
+                PurchaseFactsE2EFixtureSeeder.seed(context.getBean(JdbcTemplate.class),
+                    context.getBean(TransportPublicationService.class));
             Server server=NettyServerBuilder.forAddress(new java.net.InetSocketAddress(
-                    java.net.InetAddress.getLoopbackAddress(),port))
+                    java.net.InetAddress.getByName("127.0.0.1"),port))
                 .sslContext(GrpcSslContexts.forServer(crt.toFile(),key.toFile())
                     .trustManager(ca.toFile()).clientAuth(ClientAuth.REQUIRE).build())
                 .addService(ServerInterceptors.intercept(

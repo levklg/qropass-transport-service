@@ -42,12 +42,13 @@ class PurchaseFactsStandaloneProcessTest {
                 env.put("QRP_TEST_GRPC_PORT","0");
                 process=builder.start();
                 var lines=new LinkedBlockingQueue<String>();
+                var transcript=new java.util.concurrent.CopyOnWriteArrayList<String>();
                 Process child=process;
                 Thread reader=Thread.ofVirtual().start(()->{
                     try(var input=new BufferedReader(new InputStreamReader(
                             child.getInputStream(),StandardCharsets.UTF_8))) {
                         String line;
-                        while((line=input.readLine())!=null) lines.offer(line);
+                        while((line=input.readLine())!=null) {transcript.add(line);lines.offer(line);}
                     }catch(IOException e){lines.offer("TEST_LOG_READ_ERROR "+e.getMessage());}
                 });
                 String ready=null,fixture=null;
@@ -58,7 +59,7 @@ class PurchaseFactsStandaloneProcessTest {
                     if(line.contains("TEST_ONLY_FIXTURE"))fixture=line;
                     if(line.contains("TEST_ONLY_PURCHASE_FACTS_READY"))ready=line;
                 }
-                assertNotNull(ready,"Нет готовности отдельной JVM: "+lines);
+                assertNotNull(ready,"Нет готовности отдельной JVM: "+transcript);
                 assertNotNull(fixture,"Нет TEST ONLY транспортной фикстуры");
                 var match=Pattern.compile("pid=(\\d+) host=127\\.0\\.0\\.1 port=(\\d+)").matcher(ready);
                 assertTrue(match.find(),ready);

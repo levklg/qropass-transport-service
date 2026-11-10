@@ -192,18 +192,32 @@ public class Hta202PublicationPostgresTest {
   Fixture f=seed();publish(f);
   asRole("hta202_runtime",()->denied("42501",()->update("DELETE FROM hta202.publication_evidence WHERE route_pattern_version_id=?",f.version)));
  }
- @Test void t19_directInsertPublishedWithoutEvidenceRejected() throws Exception {
-  Fixture f=seed();UUID forged=id();
+ @Test void t19_validOwnFingerprintDeferredEvidenceGuard() throws Exception {
+  Fixture original=seed();
+  UUID fresh=id();
+  UUID pattern=scalar("SELECT pattern_id FROM public.route_pattern_version WHERE id=?",UUID.class,original.version);
+  UUID legal=scalar("SELECT legal_entity_id FROM public.route_pattern_version WHERE id=?",UUID.class,original.version);
+  UUID stopA=scalar("SELECT stop_id FROM public.stop_occurrence WHERE pattern_version_id=? AND sequence_number=1",UUID.class,original.version);
+  UUID stopB=scalar("SELECT stop_id FROM public.stop_occurrence WHERE pattern_version_id=? AND sequence_number=2",UUID.class,original.version);
+  update("INSERT INTO public.route_pattern_version(id,pattern_id,legal_entity_id,version_number,effective_from) "+
+      "VALUES(?,?,?,2,?)",fresh,pattern,legal,Timestamp.from(Instant.parse("2025-01-01T00:00:00Z")));
+  update("INSERT INTO public.stop_occurrence(id,pattern_version_id,stop_id,sequence_number) "+
+      "VALUES(?,?,?,1),(?,?,?,2)",id(),fresh,stopA,id(),fresh,stopB);
+  String own=scalar("SELECT public.transport_canonical_fingerprint(?)",String.class,fresh);
+  assertNotEquals(original.fingerprint,own);
   c.setAutoCommit(false);
   try {
-   update("INSERT INTO public.route_pattern_version(id,pattern_id,legal_entity_id,version_number,status,content_fingerprint,effective_from) "+
-     "SELECT ?,pattern_id,legal_entity_id,2,'PUBLISHED',?,effective_from FROM public.route_pattern_version WHERE id=?",
-     forged,f.fingerprint,f.version);
-   denied("23514",c::commit);
+    update("UPDATE public.route_pattern_version SET status='PUBLISHED',content_fingerprint=? WHERE id=?",own,fresh);
+    assertEquals("PUBLISHED",scalar("SELECT status FROM public.route_pattern_version WHERE id=?",String.class,fresh));
+    assertEquals(own,scalar("SELECT public.transport_canonical_fingerprint(?)",String.class,fresh));
+    // V2 structural validation completed successfully; only deferred HTA202 guard rejects COMMIT.
+    SQLException e=assertThrows(SQLException.class,c::commit);
+    assertEquals("23514",e.getSQLState());
+    assertTrue(e.getMessage().contains("Published version lacks immutable evidence"),e.getMessage());
   } finally {c.rollback();c.setAutoCommit(true);}
-  assertEquals(0L,scalar("SELECT count(*) FROM public.route_pattern_version WHERE id=?",Long.class,forged));
+  assertEquals("DRAFT",scalar("SELECT status FROM public.route_pattern_version WHERE id=?",String.class,fresh));
+  assertEquals(0L,scalar("SELECT count(*) FROM hta202.publication_evidence WHERE route_pattern_version_id=?",Long.class,fresh));
  }
-
  @Test void t20_restrictedRoleCannotCreateInPublicSearchPath() throws Exception {
   asRole("hta202_reader",()->denied("42501",()->{
    try(Statement s=active().createStatement()){s.execute("CREATE TABLE public.hta202_untrusted_shadow(id integer)");}

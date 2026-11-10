@@ -1,0 +1,87 @@
+name: QRP Transport HTA202 Slice01 TEST ONLY
+on:
+  push:
+    branches:
+      - 'feature/QRP-TRANSPORT-HTA-202-slice-01'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  hta202:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact pushed SHA
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Provenance and changed-file allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --name-only c1736eca3e8c6765b8316451d1dec9a5f7ffcfe2 HEAD | tee changed-files.txt
+          while IFS= read -r f; do
+            case "$f" in
+              src/test/resources/hta202/*|src/test/java/com/qropass/transport/hta202/*|.github/workflows/hta202-test-only.yml|docs/TEST-ONLY-HTA202.md) ;;
+              *) echo "FORBIDDEN CHANGED FILE: $f" >&2; exit 1 ;;
+            esac
+          done < changed-files.txt
+          git diff --quiet c1736eca3e8c6765b8316451d1dec9a5f7ffcfe2 HEAD -- src/main pom.xml
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Docker engine
+        run: docker info
+      - name: PostgreSQL 15 isolated Testcontainers tests
+        run: mvn -B -ntp -Dtest=Hta202PublicationPostgresTest -DfailIfNoTests=true clean verify
+      - name: Verify actual Surefire XML without failures or skipped
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob,xml.etree.ElementTree as ET
+          reports=glob.glob('target/surefire-reports/TEST-*Hta202PublicationPostgresTest.xml')
+          if not reports: raise SystemExit('Missing HTA202 Surefire XML')
+          total=0
+          for report in reports:
+              root=ET.parse(report).getroot()
+              values={k:int(root.attrib.get(k,0)) for k in ('tests','failures','errors','skipped')}
+              print(report,values)
+              total+=values['tests']
+              if values['failures'] or values['errors'] or values['skipped']:
+                  raise SystemExit('HTA202 XML contains errors, failures or skipped')
+          if total < 18: raise SystemExit(f'Expected at least 18 HTA202 tests, found {total}')
+          print('HTA202 TEST COUNT',total)
+          PY
+      - name: Production artifact isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR="$(find target -maxdepth 1 -name '*.jar' ! -name '*.original' | head -n 1)"
+          test -n "$JAR"
+          if jar tf "$JAR" | grep -Ei 'hta202|isolated-publication.sql|Hta202PublicationPostgresTest'; then
+            echo 'TEST ONLY artifact leaked into production JAR' >&2
+            exit 1
+          fi
+          echo 'Production artifact isolation PASS' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload immutable evidence for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hta202-test-only-evidence
+          path: |
+            target/surefire-reports/
+            changed-files.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Ephemeral cleanup
+        if: always()
+        shell: bash
+        run: |
+          docker ps -aq --filter 'label=org.testcontainers=true' | xargs -r docker rm -f || true
+          echo 'Test-only container cleanup attempted' >> "$GITHUB_STEP_SUMMARY"

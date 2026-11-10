@@ -204,4 +204,10 @@ public class Hta202PublicationPostgresTest {
   assertEquals(0L,scalar("SELECT count(*) FROM public.route_pattern_version WHERE id=?",Long.class,forged));
  }
 
+ @Test void t20_restrictedRoleCannotCreateInPublicSearchPath() throws Exception {
+  asRole("hta202_reader",()->denied("42501",()->{
+   try(Statement s=active().createStatement()){s.execute("CREATE TABLE public.hta202_untrusted_shadow(id integer)");}
+  }));
+ }
+
 }

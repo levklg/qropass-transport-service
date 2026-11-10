@@ -76,7 +76,7 @@ CREATE CONSTRAINT TRIGGER hta202_publication_insert_guard
 -- Writer receives EXECUTE only, not table INSERT or route_pattern_version UPDATE.
 CREATE FUNCTION hta202.publish_test_only(v uuid, expected_fingerprint text)
  RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
- SET search_path = pg_catalog AS $
+ SET search_path = pg_catalog AS $$
 DECLARE rec record; ev_id uuid; event_id uuid; recorded timestamptz;
 BEGIN
  IF v IS NULL OR expected_fingerprint IS NULL OR

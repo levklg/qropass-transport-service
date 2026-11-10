@@ -235,7 +235,7 @@ public class Hta202PublicationPostgresTest {
     // Transport table referenced by the unchanged V2 fingerprint/guards.
     for(String name:List.of("route_pattern_version","route_pattern","route_direction",
         "stop_occurrence","fare_section","operator_assignment")) {
-      s.execute("CREATE TEMP TABLE "+name+" (LIKE public."+name+")");
+      s.execute("CREATE TEMP TABLE "+name+" (id uuid)");
     }
    }
    assertNotNull(scalar("SELECT to_regclass('pg_temp.route_pattern_version')::text",String.class));
@@ -255,7 +255,7 @@ public class Hta202PublicationPostgresTest {
    try(Statement s=active().createStatement()){
     for(String name:List.of("route_pattern_version","route_pattern","route_direction",
         "stop_occurrence","fare_section","operator_assignment")) {
-      s.execute("CREATE TEMP TABLE "+name+" (LIKE public."+name+")");
+      s.execute("CREATE TEMP TABLE "+name+" (id uuid)");
     }
    }
    assertNotNull(scalar("SELECT to_regclass('pg_temp.stop_occurrence')::text",String.class));

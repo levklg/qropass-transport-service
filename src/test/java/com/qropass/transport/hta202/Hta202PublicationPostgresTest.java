@@ -210,4 +210,54 @@ public class Hta202PublicationPostgresTest {
   }));
  }
 
+ @Test void t21_writerTempShadowDoesNotAffectCanonicalFingerprint() throws Exception {
+  Fixture f=seed();
+  String expected=scalar("SELECT public.transport_canonical_fingerprint(?)",String.class,f.version);
+  assertEquals(f.fingerprint,expected);
+  final UUID[] evidence=new UUID[1];
+  asRole("hta202_writer",()->{
+   try(Statement s=active().createStatement()) {
+    // An adversarial writer owns temporary relations shadowing EVERY unqualified
+    // Transport table referenced by the unchanged V2 fingerprint/guards.
+    for(String name:List.of("route_pattern_version","route_pattern","route_direction",
+        "stop_occurrence","fare_section","operator_assignment")) {
+      s.execute("CREATE TEMP TABLE "+name+" (LIKE public."+name+")");
+    }
+   }
+   assertNotNull(scalar("SELECT to_regclass('pg_temp.route_pattern_version')::text",String.class));
+   assertEquals("route_pattern_version",scalar("SELECT to_regclass('route_pattern_version')::text",String.class));
+   evidence[0]=publish(f);
+   assertNotNull(evidence[0]);
+  });
+  assertEquals("PUBLISHED",scalar("SELECT status FROM public.route_pattern_version WHERE id=?",String.class,f.version));
+  assertEquals(1L,count(f));
+  assertEquals(expected,scalar("SELECT content_fingerprint FROM public.route_pattern_version WHERE id=?",String.class,f.version));
+  assertEquals(expected,scalar("SELECT public.transport_canonical_fingerprint(?)",String.class,f.version));
+ }
+ @Test void t22_writerTempShadowCannotPublishForgedFingerprint() throws Exception {
+  Fixture f=seed();
+  String forged="sha256:"+"f".repeat(64);
+  asRole("hta202_writer",()->{
+   try(Statement s=active().createStatement()){
+    for(String name:List.of("route_pattern_version","route_pattern","route_direction",
+        "stop_occurrence","fare_section","operator_assignment")) {
+      s.execute("CREATE TEMP TABLE "+name+" (LIKE public."+name+")");
+    }
+   }
+   assertNotNull(scalar("SELECT to_regclass('pg_temp.stop_occurrence')::text",String.class));
+   denied("23514",()->scalar("SELECT hta202.publish_test_only(?,?)",UUID.class,f.version,forged));
+  });
+  assertEquals("DRAFT",scalar("SELECT status FROM public.route_pattern_version WHERE id=?",String.class,f.version));
+  assertEquals(0L,count(f));
+ }
+ @Test void t23_writerNoEscalationOrArbitraryDmlUnderTempShadow() throws Exception {
+  Fixture f=seed();
+  asRole("hta202_writer",()->{
+   try(Statement s=active().createStatement()){s.execute("CREATE TEMP TABLE route_pattern_version (id uuid)");}
+   denied("42501",()->{try(Statement s=active().createStatement()){s.execute("SET ROLE hta202_owner");}});
+   denied("42501",()->update("UPDATE public.route_pattern_version SET status='PUBLISHED' WHERE id=?",f.version));
+   denied("42501",()->update("INSERT INTO hta202.publication_evidence(evidence_id) VALUES(?)",id()));
+  });
+ }
+
 }

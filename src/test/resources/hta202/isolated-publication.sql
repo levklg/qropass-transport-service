@@ -102,7 +102,7 @@ BEGIN
  VALUES (ev_id,v,expected_fingerprint,event_id,recorded,'HTA202-TEST-ONLY-v1',1,
  hta202.digest_evidence(v,expected_fingerprint,event_id,recorded,'HTA202-TEST-ONLY-v1'));
  RETURN ev_id;
-END $;
+END $$;
 ALTER FUNCTION hta202.publish_test_only(uuid,text) OWNER TO hta202_owner;
 REVOKE ALL ON FUNCTION hta202.publish_test_only(uuid,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION hta202.publish_test_only(uuid,text) TO hta202_writer;

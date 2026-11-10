@@ -192,4 +192,16 @@ public class Hta202PublicationPostgresTest {
   Fixture f=seed();publish(f);
   asRole("hta202_runtime",()->denied("42501",()->update("DELETE FROM hta202.publication_evidence WHERE route_pattern_version_id=?",f.version)));
  }
+ @Test void t19_directInsertPublishedWithoutEvidenceRejected() throws Exception {
+  Fixture f=seed();UUID forged=id();
+  c.setAutoCommit(false);
+  try {
+   update("INSERT INTO public.route_pattern_version(id,pattern_id,legal_entity_id,version_number,status,content_fingerprint,effective_from) "+
+     "SELECT ?,pattern_id,legal_entity_id,2,'PUBLISHED',?,effective_from FROM public.route_pattern_version WHERE id=?",
+     forged,f.fingerprint,f.version);
+   denied("23514",c::commit);
+  } finally {c.rollback();c.setAutoCommit(true);}
+  assertEquals(0L,scalar("SELECT count(*) FROM public.route_pattern_version WHERE id=?",Long.class,forged));
+ }
+
 }

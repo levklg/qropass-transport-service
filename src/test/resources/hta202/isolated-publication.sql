@@ -1,5 +1,8 @@
 -- HTA202: disposable PostgreSQL 15 ONLY. Never apply to production.
 -- The pre-existing V1/V2 structure exists exclusively in an ephemeral Testcontainers DB.
+-- Existing V2 fingerprint function uses unqualified relations in public.
+-- Make public non-writable to untrusted roles before permitting it in a SECURITY DEFINER search_path.
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE SCHEMA hta202;
 CREATE ROLE hta202_owner NOLOGIN NOINHERIT;
 CREATE ROLE hta202_writer NOLOGIN NOINHERIT;
@@ -76,7 +79,7 @@ CREATE CONSTRAINT TRIGGER hta202_publication_insert_guard
 -- Writer receives EXECUTE only, not table INSERT or route_pattern_version UPDATE.
 CREATE FUNCTION hta202.publish_test_only(v uuid, expected_fingerprint text)
  RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
- SET search_path = pg_catalog AS $$
+ SET search_path = pg_catalog, public AS $$
 DECLARE rec record; ev_id uuid; event_id uuid; recorded timestamptz;
 BEGIN
  IF v IS NULL OR expected_fingerprint IS NULL OR

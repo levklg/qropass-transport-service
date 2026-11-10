@@ -39,6 +39,8 @@ jobs:
       - name: Docker engine
         run: docker info
       - name: PostgreSQL 15 isolated Testcontainers tests
+        env:
+          DOCKER_API_VERSION: '1.44'
         run: mvn -B -ntp -Dtest=Hta202PublicationPostgresTest -DfailIfNoTests=true clean verify
       - name: Verify actual Surefire XML without failures or skipped
         shell: bash

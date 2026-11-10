@@ -274,4 +274,36 @@ public class Hta202PublicationPostgresTest {
   });
  }
 
+ @Test void t24_directInsertMatchingCanonicalFingerprintHitsDeferredInsertGuard() throws Exception {
+  Fixture original=seed();
+  UUID pattern=scalar("SELECT pattern_id FROM public.route_pattern_version WHERE id=?",UUID.class,original.version);
+  UUID legal=scalar("SELECT legal_entity_id FROM public.route_pattern_version WHERE id=?",UUID.class,original.version);
+  UUID direction=scalar("SELECT direction_id FROM public.route_pattern WHERE id=?",UUID.class,pattern);
+  UUID route=scalar("SELECT route_id FROM public.route_direction WHERE id=?",UUID.class,direction);
+  UUID newVersion=id();
+  // Exact unchanged V1 binary fingerprint for a newly inserted version with zero children.
+  // The V2 header guard only fires on UPDATE; HTA202 must independently guard direct INSERT.
+  java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
+  try(java.io.DataOutputStream out=new java.io.DataOutputStream(bytes)) {
+   out.write("QRP-TRANSPORT-FP".getBytes(StandardCharsets.US_ASCII));out.writeByte(1);
+   for(UUID v:List.of(legal,route,direction,pattern,newVersion)) {
+    out.writeLong(v.getMostSignificantBits());out.writeLong(v.getLeastSignificantBits());
+   }
+   out.writeInt(0);out.writeInt(0);
+  }
+  String canonical="sha256:"+HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes.toByteArray()));
+  c.setAutoCommit(false);
+  try {
+   update("INSERT INTO public.route_pattern_version(id,pattern_id,legal_entity_id,version_number,status,content_fingerprint,effective_from) "+
+      "VALUES(?,?,?,3,'PUBLISHED',?,?)",newVersion,pattern,legal,canonical,
+      Timestamp.from(Instant.parse("2025-01-01T00:00:00Z")));
+   assertEquals(canonical,scalar("SELECT public.transport_canonical_fingerprint(?)",String.class,newVersion));
+   SQLException e=assertThrows(SQLException.class,c::commit);
+   assertEquals("23514",e.getSQLState());
+   assertTrue(e.getMessage().contains("Published version lacks immutable evidence"),e.getMessage());
+  } finally {c.rollback();c.setAutoCommit(true);}
+  assertEquals(0L,scalar("SELECT count(*) FROM public.route_pattern_version WHERE id=?",Long.class,newVersion));
+  assertEquals(0L,scalar("SELECT count(*) FROM hta202.publication_evidence WHERE route_pattern_version_id=?",Long.class,newVersion));
+ }
+
 }

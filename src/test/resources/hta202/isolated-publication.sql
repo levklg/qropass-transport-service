@@ -74,20 +74,20 @@ CREATE CONSTRAINT TRIGGER hta202_publication_guard
 CREATE FUNCTION hta202.publish_test_only(v uuid, expected_fingerprint text)
  RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
  SET search_path = pg_catalog, public, hta202 AS $$
-DECLARE rec record; id uuid; event_id uuid; recorded timestamptz;
+DECLARE rec record; ev_id uuid; event_id uuid; recorded timestamptz;
 BEGIN
  IF v IS NULL OR expected_fingerprint IS NULL OR
     expected_fingerprint !~ '^sha256:[0-9a-f]{64}$' THEN
    RAISE EXCEPTION 'Invalid publication parameters' USING ERRCODE='22023';
  END IF;
- SELECT id,status,content_fingerprint INTO rec FROM public.route_pattern_version
-  WHERE public.route_pattern_version.id=v FOR UPDATE;
+ SELECT p.id,p.status,p.content_fingerprint INTO rec FROM public.route_pattern_version p
+  WHERE p.id=v FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION 'Unknown version' USING ERRCODE='23514'; END IF;
  IF rec.status='PUBLISHED' THEN
-   SELECT evidence_id INTO id FROM hta202.publication_evidence
+   SELECT evidence_id INTO ev_id FROM hta202.publication_evidence
     WHERE route_pattern_version_id=v AND content_fingerprint=expected_fingerprint;
-   IF id IS NULL THEN RAISE EXCEPTION 'Historical authority unproven' USING ERRCODE='23514'; END IF;
-   RETURN id;
+   IF ev_id IS NULL THEN RAISE EXCEPTION 'Historical authority unproven' USING ERRCODE='23514'; END IF;
+   RETURN ev_id;
  END IF;
  IF rec.status<>'DRAFT' OR public.transport_canonical_fingerprint(v)<>expected_fingerprint THEN
     RAISE EXCEPTION 'Fingerprint or version conflict' USING ERRCODE='23514';
@@ -95,14 +95,14 @@ BEGIN
  -- PostgreSQL V2 guard independently checks structural snapshot and publication rules.
  UPDATE public.route_pattern_version SET status='PUBLISHED',
   content_fingerprint=expected_fingerprint WHERE id=v;
- id=gen_random_uuid(); event_id=gen_random_uuid(); recorded=clock_timestamp();
+ ev_id=gen_random_uuid(); event_id=gen_random_uuid(); recorded=clock_timestamp();
  INSERT INTO hta202.publication_evidence(
  evidence_id,route_pattern_version_id,content_fingerprint,publication_event_id,
  publication_recorded_at,publication_policy_version,evidence_schema_version,evidence_digest)
- VALUES (id,v,expected_fingerprint,event_id,recorded,'HTA202-TEST-ONLY-v1',1,
+ VALUES (ev_id,v,expected_fingerprint,event_id,recorded,'HTA202-TEST-ONLY-v1',1,
  hta202.digest_evidence(v,expected_fingerprint,event_id,recorded,'HTA202-TEST-ONLY-v1'));
- RETURN id;
-END $$;
+ RETURN ev_id;
+END $;
 ALTER FUNCTION hta202.publish_test_only(uuid,text) OWNER TO hta202_owner;
 REVOKE ALL ON FUNCTION hta202.publish_test_only(uuid,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION hta202.publish_test_only(uuid,text) TO hta202_writer;

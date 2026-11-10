@@ -19,6 +19,8 @@ import static org.junit.jupiter.api.Assertions.*;
 public class Hta202PublicationPostgresTest {
  @Container static final PostgreSQLContainer<?> db = new PostgreSQLContainer<>("postgres:15");
  static Connection c;
+ static final ThreadLocal<Connection> restrictedConnection=new ThreadLocal<>();
+ static Connection active(){ Connection r=restrictedConnection.get();return r==null?c:r; }
  static final String SQL = "/hta202/isolated-publication.sql";
  @BeforeAll static void init() throws Exception {
   c=DriverManager.getConnection(db.getJdbcUrl(), db.getUsername(),db.getPassword());
@@ -27,7 +29,12 @@ public class Hta202PublicationPostgresTest {
   String sql=new String(Objects.requireNonNull(Hta202PublicationPostgresTest.class.getResourceAsStream(SQL))
     .readAllBytes(),StandardCharsets.UTF_8);
   // PostgreSQL JDBC permits multiple SQL statements per Statement.execute().
-  try(Statement s=c.createStatement()){s.execute(sql);}
+  try(Statement s=c.createStatement()) {s.execute(sql);
+   for(String role: List.of("reader","writer","runtime")) {
+    s.execute("CREATE ROLE hta202_test_"+role+" LOGIN PASSWORD 'hta202_ephemeral_only'");
+    s.execute("GRANT hta202_"+role+" TO hta202_test_"+role);
+   }
+  }
  }
  @AfterAll static void close() throws Exception { if(c!=null)c.close(); }
  @BeforeEach void clear() throws Exception {
@@ -41,13 +48,13 @@ public class Hta202PublicationPostgresTest {
  record Fixture(UUID version, String fingerprint) {}
  static UUID id(){return UUID.randomUUID();}
  static int update(String sql,Object... vals) throws Exception {
-  try(PreparedStatement p=c.prepareStatement(sql)){
+  try(PreparedStatement p=active().prepareStatement(sql)){
    for(int i=0;i<vals.length;i++)p.setObject(i+1,vals[i]);
    return p.executeUpdate();
   }
  }
  static <T> T scalar(String sql, Class<T> type, Object... vals) throws Exception {
-  try(PreparedStatement p=c.prepareStatement(sql)){
+  try(PreparedStatement p=active().prepareStatement(sql)){
    for(int i=0;i<vals.length;i++)p.setObject(i+1,vals[i]);
    try(ResultSet r=p.executeQuery()){assertTrue(r.next());return r.getObject(1,type);}
   }
@@ -74,8 +81,12 @@ public class Hta202PublicationPostgresTest {
   return scalar("SELECT count(*) FROM hta202.publication_evidence WHERE route_pattern_version_id=?",Long.class,f.version);
  }
  static void asRole(String role, Throwing action) throws Exception {
-  try(Statement s=c.createStatement()){s.execute("SET ROLE "+role);}
-  try {action.run();} finally {try(Statement s=c.createStatement()){s.execute("RESET ROLE");}}
+  String suffix=role.replace("hta202_","");
+  try(Connection restricted=DriverManager.getConnection(db.getJdbcUrl(),
+       "hta202_test_"+suffix,"hta202_ephemeral_only")) {
+    restrictedConnection.set(restricted);
+    try {action.run();} finally {restrictedConnection.remove();}
+  }
  }
  interface Throwing { void run() throws Exception; }
  static void denied(String code, Throwing a) {
@@ -123,13 +134,13 @@ public class Hta202PublicationPostgresTest {
   denied("23514",()->update("DELETE FROM hta202.publication_evidence WHERE route_pattern_version_id=?",f.version));
  }
  @Test void t08_truncateReaderDenied() throws Exception {
-  asRole("hta202_reader",()->denied("42501",()->{try(Statement s=c.createStatement()){s.execute("TRUNCATE hta202.publication_evidence");}}));
+  asRole("hta202_reader",()->denied("42501",()->{try(Statement s=active().createStatement()){s.execute("TRUNCATE hta202.publication_evidence");}}));
  }
  @Test void t09_insertWriterDenied() throws Exception {
   asRole("hta202_writer",()->denied("42501",()->update("INSERT INTO hta202.publication_evidence(evidence_id) VALUES(?)",id())));
  }
  @Test void t10_roleEscalationDenied() throws Exception {
-  asRole("hta202_reader",()->denied("42501",()->{try(Statement s=c.createStatement()){s.execute("SET ROLE hta202_owner");}}));
+  asRole("hta202_reader",()->denied("42501",()->{try(Statement s=active().createStatement()){s.execute("SET ROLE hta202_owner");}}));
  }
  @Test void t11_directPublishedNoEvidenceRejected() throws Exception {
   Fixture f=seed(); c.setAutoCommit(false);

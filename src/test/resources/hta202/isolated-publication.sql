@@ -50,7 +50,7 @@ CREATE FUNCTION hta202.require_evidence_at_commit() RETURNS trigger
  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, hta202 AS $$
 DECLARE n integer;
 BEGIN
- IF NEW.status = 'PUBLISHED' AND OLD.status IS DISTINCT FROM 'PUBLISHED' THEN
+ IF NEW.status = 'PUBLISHED' AND (TG_OP='INSERT' OR OLD.status IS DISTINCT FROM 'PUBLISHED') THEN
    SELECT count(*) INTO n FROM hta202.publication_evidence e
     WHERE e.route_pattern_version_id = NEW.id
       AND e.content_fingerprint = NEW.content_fingerprint
@@ -68,12 +68,15 @@ REVOKE ALL ON FUNCTION hta202.require_evidence_at_commit() FROM PUBLIC;
 CREATE CONSTRAINT TRIGGER hta202_publication_guard
  AFTER UPDATE OF status ON public.route_pattern_version DEFERRABLE INITIALLY DEFERRED
  FOR EACH ROW EXECUTE FUNCTION hta202.require_evidence_at_commit();
+CREATE CONSTRAINT TRIGGER hta202_publication_insert_guard
+ AFTER INSERT ON public.route_pattern_version DEFERRABLE INITIALLY DEFERRED
+ FOR EACH ROW EXECUTE FUNCTION hta202.require_evidence_at_commit();
 
 -- Existing publication logic runs under a trusted owner in the isolated test database.
 -- Writer receives EXECUTE only, not table INSERT or route_pattern_version UPDATE.
 CREATE FUNCTION hta202.publish_test_only(v uuid, expected_fingerprint text)
  RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
- SET search_path = pg_catalog, public, hta202 AS $$
+ SET search_path = pg_catalog AS $
 DECLARE rec record; ev_id uuid; event_id uuid; recorded timestamptz;
 BEGIN
  IF v IS NULL OR expected_fingerprint IS NULL OR

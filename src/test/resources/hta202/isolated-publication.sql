@@ -1,6 +1,8 @@
 -- HTA202: disposable PostgreSQL 15 ONLY. Never apply to production.
 -- The pre-existing V1/V2 structure exists exclusively in an ephemeral Testcontainers DB.
--- FIX206: Explicit pg_temp in the LAST position prevents implicit temp-first lookup,\n-- including inherited search_path in the unchanged V2 fingerprint and guards.\n-- Existing V2 fingerprint function uses unqualified relations in public.
+-- FIX206: Explicit pg_temp in the LAST position prevents implicit temp-first lookup,
+-- including inherited search_path in the unchanged V2 fingerprint and guards.
+-- Existing V2 fingerprint function uses unqualified relations in public.
 -- Make public non-writable to untrusted roles before permitting it in a SECURITY DEFINER search_path.
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE SCHEMA hta202;
@@ -28,7 +30,7 @@ GRANT SELECT ON hta202.publication_evidence TO hta202_reader;
 -- Use a fixed canonical UTF-8 payload contract to prevent unsigned metadata substitution.
 CREATE FUNCTION hta202.digest_evidence(
  v uuid, f text, event_id uuid, recorded timestamptz, policy text
-) RETURNS text LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog, pg_temp AS $
+) RETURNS text LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog, pg_temp AS $$
  SELECT 'sha256:' || encode(sha256(convert_to(
    'HTA202-EVIDENCE-V1|' || v::text || '|' || f || '|' || event_id::text || '|' ||
    to_char(recorded AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z|' || policy || '|1', 'UTF8')),'hex');
@@ -38,7 +40,7 @@ REVOKE ALL ON FUNCTION hta202.digest_evidence(uuid,text,uuid,timestamptz,text) F
 
 -- Last line of defence: block UPDATE/DELETE, including changes to historical evidence by writer.
 CREATE FUNCTION hta202.reject_evidence_mutation() RETURNS trigger
- LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, hta202, pg_temp AS $
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, hta202, pg_temp AS $$
 BEGIN
  RAISE EXCEPTION 'Historical evidence immutable' USING ERRCODE='23514';
 END $$;
@@ -50,7 +52,7 @@ CREATE TRIGGER hta202_immutable BEFORE UPDATE OR DELETE ON hta202.publication_ev
 -- Deferred integrity check checks the actual final state at transaction end,
 -- including direct SQL UPDATE that bypasses the dedicated writer function.
 CREATE FUNCTION hta202.require_evidence_at_commit() RETURNS trigger
- LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, hta202, pg_temp AS $
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, hta202, pg_temp AS $$
 DECLARE n integer;
 BEGIN
  IF NEW.status = 'PUBLISHED' AND (TG_OP='INSERT' OR OLD.status IS DISTINCT FROM 'PUBLISHED') THEN
@@ -79,7 +81,7 @@ CREATE CONSTRAINT TRIGGER hta202_publication_insert_guard
 -- Writer receives EXECUTE only, not table INSERT or route_pattern_version UPDATE.
 CREATE FUNCTION hta202.publish_test_only(v uuid, expected_fingerprint text)
  RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
- SET search_path = pg_catalog, public, pg_temp AS $
+ SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE rec record; ev_id uuid; event_id uuid; recorded timestamptz;
 BEGIN
  IF v IS NULL OR expected_fingerprint IS NULL OR
